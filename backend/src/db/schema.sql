@@ -1,10 +1,10 @@
--- ŠotoGO schema (auth slice).
--- Mirrors docs/DATA-MODEL.md `users`, extended for authentication:
---   * password_hash is NULL for accounts created via Google
---   * google_id links a Google account (NULL for email/password accounts)
---   * avatar_url stores the Google profile picture when available
--- Game tables (vehicles, stops, challenges, …) come in a later slice.
+-- ŠotoGO schema.
+-- Mirrors docs/DATA-MODEL.md, with auth + the "Pokédex" catalog slice.
+-- Game progress tables (user_vehicles, user_stops, challenges, …) come later.
 
+-- ── Users ──────────────────────────────────────────────────────────────────
+-- password_hash is NULL for Google-only accounts; google_id links a Google
+-- account (NULL for email/password); avatar_url holds the Google picture.
 CREATE TABLE IF NOT EXISTS users (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   username      TEXT NOT NULL,
@@ -16,3 +16,37 @@ CREATE TABLE IF NOT EXISTS users (
   xp            INT NOT NULL DEFAULT 0,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── Vehicle catalog ──────────────────────────────────────────────────────────
+-- The collectible "Pokédex": one row per vehicle MODEL (type), not per physical
+-- vehicle. Seeded from src/data/vehicleTypes.ts (npm run seed:vehicles).
+CREATE TABLE IF NOT EXISTS vehicle_types (
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  category     TEXT NOT NULL,              -- tram | bus | metro | trolley | train
+  model        TEXT NOT NULL,             -- full model name, e.g. "Škoda 15T ForCity Alfa"
+  short_name   TEXT NOT NULL,             -- short label, e.g. "15T"
+  manufacturer TEXT NOT NULL,
+  operator     TEXT NOT NULL,             -- DPP | Metro Praha | ČD | PID
+  rarity       TEXT NOT NULL,             -- common | rare | epic | legendary
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (category, short_name)
+);
+
+-- ── Stops (and gyms) ─────────────────────────────────────────────────────────
+-- One row per station node (platforms grouped). Imported from PID GTFS
+-- (npm run import:stops). `lines` and `categories` are the routes serving the
+-- station; `is_gym` marks metro stations and major interchanges.
+CREATE TABLE IF NOT EXISTS stops (
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  gtfs_node_id TEXT NOT NULL UNIQUE,      -- PID node id, e.g. "U306"
+  name         TEXT NOT NULL,
+  latitude     DOUBLE PRECISION NOT NULL,
+  longitude    DOUBLE PRECISION NOT NULL,
+  lines        TEXT[] NOT NULL DEFAULT '{}',   -- route short names, e.g. {A,C,5,9}
+  categories   TEXT[] NOT NULL DEFAULT '{}',   -- {metro,tram,bus,...}
+  is_gym       BOOLEAN NOT NULL DEFAULT false,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS stops_latlng_idx ON stops (latitude, longitude);
+CREATE INDEX IF NOT EXISTS stops_gym_idx ON stops (is_gym);

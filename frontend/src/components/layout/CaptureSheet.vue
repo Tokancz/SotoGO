@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useGameStore } from '@/stores/game'
-import type { Vehicle } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
 
@@ -12,17 +11,9 @@ const game = useGameStore()
 type Phase = 'aim' | 'scan' | 'reward'
 const phase = ref<Phase>('aim')
 
-// In production this comes from the OCR result; here it's the demo tram from the
-// design prototype (15T #9325). See docs/ARCHITECTURE.md (OCR pipeline).
-const vehicle: Vehicle = {
-  cat: 'tram',
-  type: '15T',
-  number: '9325',
-  operator: 'DPP',
-  rarity: 'rare',
-  found: new Date().toLocaleDateString('cs-CZ'),
-  isNew: true,
-}
+// In production this comes from the OCR result; here it's a demo tram from the
+// catalog (Škoda 15T). See docs/ARCHITECTURE.md (OCR pipeline).
+const vehicle = { cat: 'tram' as const, type: '15T', number: '9325', operator: 'DPP' }
 const reward = 100
 
 const corners = ['nw', 'ne', 'sw', 'se'] as const
@@ -37,7 +28,7 @@ watch(phase, (p) => {
 onBeforeUnmount(() => clearTimeout(scanTimer))
 
 function addToPark() {
-  game.catchVehicle(vehicle, reward)
+  game.collectByModel(vehicle.cat, vehicle.type, reward)
   emit('caught')
   emit('close')
 }

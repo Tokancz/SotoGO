@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/game'
 import SgBottomNav, { type NavItem } from '@/components/game/SgBottomNav.vue'
@@ -34,6 +34,10 @@ function onNav(id: string) {
 function onCaught() {
   router.push({ name: 'park' })
 }
+
+onMounted(() => {
+  game.ensureCatalog()
+})
 </script>
 
 <template>

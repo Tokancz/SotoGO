@@ -39,7 +39,7 @@ const vars = computed(() => ({
       <div class="sg-vcard__lockwrap"><SgIcon name="lock" /></div>
     </div>
     <div class="sg-vcard__body">
-      <span class="sg-vcard__unknown">??? #????</span>
+      <span class="sg-vcard__unknown">???</span>
       <span class="sg-vcard__operator">Zatím neobjeveno</span>
     </div>
   </div>
@@ -53,7 +53,7 @@ const vars = computed(() => ({
       <span v-if="isNew" class="sg-vcard__new">Nový objev!</span>
     </div>
     <div class="sg-vcard__body">
-      <span class="sg-vcard__code">{{ type }} #{{ number }}</span>
+      <span class="sg-vcard__code">{{ type }}<template v-if="number"> #{{ number }}</template></span>
       <span v-if="operator" class="sg-vcard__operator">{{ operator }}</span>
       <span v-if="found" class="sg-vcard__meta"><SgIcon name="calendar-check" />{{ found }}</span>
     </div>

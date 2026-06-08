@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from 'express'
 import cors from 'cors'
 import { config } from './config.js'
 import { authRouter } from './routes/auth.js'
+import { catalogRouter } from './routes/catalog.js'
 
 const app = express()
 
@@ -14,6 +15,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRouter)
+app.use('/api', catalogRouter)
 
 // Final error handler — keeps unexpected failures from leaking internals.
 const onError: ErrorRequestHandler = (err, _req, res, _next) => {

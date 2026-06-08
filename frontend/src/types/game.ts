@@ -71,9 +71,38 @@ export interface Achievement {
   max?: number;
 }
 
+/** A catalog ("Pokédex") entry — one per vehicle MODEL. From GET /api/vehicles. */
+export interface CatalogVehicle {
+  id: string;
+  category: CategoryKey;
+  /** Full model name, e.g. "Škoda 15T ForCity Alfa". */
+  model: string;
+  /** Short label, e.g. "15T". */
+  shortName: string;
+  manufacturer: string;
+  operator: string;
+  rarity: Rarity;
+}
+
+/** A stop/station from GET /api/stops (PID GTFS, platforms grouped per node). */
+export interface ApiStop {
+  id: string;
+  nodeId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  /** Route short names serving the station, e.g. ["A","C","5","9"]. */
+  lines: string[];
+  /** Vehicle categories serving it, e.g. ["metro","tram","bus"]. */
+  categories: string[];
+  isGym: boolean;
+}
+
 export interface Player {
   name: string;
   handle: string;
+  /** Profile picture URL (e.g. from Google), or null. */
+  avatarUrl: string | null;
   level: number;
   /** XP within the current level. */
   xp: number;

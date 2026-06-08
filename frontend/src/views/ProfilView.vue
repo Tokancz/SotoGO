@@ -16,10 +16,6 @@ const player = computed(() => game.player)
 const auth = useAuthStore()
 const router = useRouter()
 
-// Prefer the signed-in account's name/handle; fall back to the seed player.
-const displayName = computed(() => auth.user?.username ?? player.value.name)
-const displayHandle = computed(() => (auth.user ? auth.user.email : player.value.handle))
-
 function logout() {
   auth.logout()
   router.replace({ name: 'login' })
@@ -37,8 +33,8 @@ const sound = ref(true)
       <div class="hero">
         <SgLevelRing :level="player.level" :value="player.xp" :max="player.xpMax" :size="92" :sub-text="`${player.xp}/${player.xpMax}`" />
         <div class="hero__body">
-          <div class="hero__name">{{ displayName }}</div>
-          <div class="hero__handle">{{ displayHandle }}</div>
+          <div class="hero__name">{{ player.name }}</div>
+          <div class="hero__handle">{{ player.handle }}</div>
           <SgBadge tone="brand" variant="solid" icon="award">Šotouš · Level {{ player.level }}</SgBadge>
         </div>
       </div>
@@ -53,16 +49,20 @@ const sound = ref(true)
         <span class="eyebrow">Poslední úlovky</span>
         <span class="screen__link">Vše v parku</span>
       </div>
-      <div class="recent">
-        <div v-for="v in game.recentVehicles" :key="v.type + v.number" class="recent__row">
-          <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[v.cat].color} 14%, white)`, color: game.cats[v.cat].color }">
-            <SgIcon :name="game.cats[v.cat].icon" :size="20" />
+      <div v-if="game.recentVehicles.length === 0" class="empty">
+        <SgIcon name="camera" :size="22" />
+        <span>Zatím žádné úlovky — vyfoť své první vozidlo!</span>
+      </div>
+      <div v-else class="recent">
+        <div v-for="v in game.recentVehicles" :key="v.id" class="recent__row">
+          <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[v.category].color} 14%, white)`, color: game.cats[v.category].color }">
+            <SgIcon :name="game.cats[v.category].icon" :size="20" />
           </div>
           <div class="recent__body">
-            <div class="recent__code">{{ v.type }} #{{ v.number }}</div>
-            <div class="recent__sub">{{ game.cats[v.cat].label }} · {{ v.operator }}</div>
+            <div class="recent__code">{{ v.shortName }}</div>
+            <div class="recent__sub">{{ game.cats[v.category].label }} · {{ v.operator }}</div>
           </div>
-          <span class="recent__date">{{ v.found }}</span>
+          <span class="recent__date">{{ v.manufacturer }}</span>
         </div>
       </div>
 
@@ -113,6 +113,16 @@ const sound = ref(true)
 
 .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 24px; }
 
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px;
+  margin-bottom: 24px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  @include soft-card(var(--radius-md));
+}
 .recent { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
 .recent__row {
   display: flex;

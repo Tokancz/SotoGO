@@ -14,7 +14,7 @@ const xpLabel = computed(() => `${player.value.xpTotal.toLocaleString('cs-CZ')} 
 
 <template>
   <header class="topbar">
-    <SgAvatar :name="player.name" :size="38" :level="player.level" />
+    <SgAvatar :src="player.avatarUrl ?? undefined" :name="player.name" :size="38" :level="player.level" />
     <div class="topbar__titles">
       <div class="topbar__title">{{ title }}</div>
       <div v-if="subtitle" class="topbar__subtitle">{{ subtitle }}</div>

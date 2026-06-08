@@ -41,6 +41,14 @@
   > span { transform: rotate(45deg); }
 }
 
+// Gym stations (metro / major interchanges) — gold ring around the pin.
+.sg-stop-pin--gym .sg-stop-pin__head {
+  box-shadow: 0 0 0 3px var(--xp), 0 0 0 5px #fff;
+}
+
+// Already-visited stops read as muted.
+.sg-stop-pin--visited { opacity: 0.5; }
+
 // Leaflet container should never paint over our floating HUD.
 .leaflet-container {
   isolation: isolate;

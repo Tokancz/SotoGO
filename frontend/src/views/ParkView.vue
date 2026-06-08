@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
-import type { CategoryKey, Rarity, Vehicle } from '@/types/game'
+import type { CatalogVehicle, CategoryKey, Rarity } from '@/types/game'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgProgressBar from '@/components/ui/SgProgressBar.vue'
 import SgTag from '@/components/ui/SgTag.vue'
@@ -16,15 +16,20 @@ const game = useGameStore()
 type Filter = 'all' | CategoryKey
 const filter = ref<Filter>('all')
 const view = ref<'mrizka' | 'seznam'>('mrizka')
-const detail = ref<Vehicle | null>(null)
+const detail = ref<CatalogVehicle | null>(null)
 
 const counts = computed(() => game.countByCategory)
-const list = computed(() =>
-  filter.value === 'all' ? game.vehicles : game.vehicles.filter((v) => v.cat === filter.value),
-)
-const lockedSlots = computed(() =>
-  filter.value === 'all' ? 4 : game.lockedCount[filter.value],
-)
+
+/** Catalog filtered by category, collected entries first. */
+const list = computed(() => {
+  const collected = game.collectedSet
+  const items = (
+    filter.value === 'all' ? game.catalog : game.catalog.filter((v) => v.category === filter.value)
+  ).map((v) => ({ v, collected: collected.has(v.id) }))
+  return items.sort((a, b) => Number(b.collected) - Number(a.collected))
+})
+
+const newestId = computed(() => game.recentVehicles[0]?.id)
 
 const stars: Record<Rarity, string> = {
   common: '★',
@@ -33,7 +38,7 @@ const stars: Record<Rarity, string> = {
   legendary: '★★★★',
 }
 
-const detailCat = computed(() => (detail.value ? game.cats[detail.value.cat] : null))
+const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
 const previewStyle = computed(() =>
   detailCat.value
     ? {
@@ -47,7 +52,7 @@ const previewStyle = computed(() =>
 
 <template>
   <div class="screen">
-    <TopBar title="Vozový park" :subtitle="`${game.totalFound} z ${game.totalAll} vozidel`" />
+    <TopBar title="Vozový park" :subtitle="`${game.totalFound} z ${game.totalAll} modelů`" />
 
     <div class="screen__scroll">
       <div class="completion">
@@ -78,7 +83,7 @@ const previewStyle = computed(() =>
       </div>
 
       <div class="screen__sectionhead">
-        <span class="eyebrow">{{ filter === 'all' ? 'Všechna vozidla' : game.cats[filter].plural }}</span>
+        <span class="eyebrow">{{ filter === 'all' ? 'Všechny modely' : game.cats[filter].plural }}</span>
         <SgSegmentedControl
           v-model="view"
           :options="[
@@ -88,26 +93,20 @@ const previewStyle = computed(() =>
         />
       </div>
 
-      <div class="grid" :class="{ 'grid--list': view === 'seznam' }">
+      <div v-if="!game.catalogLoaded" class="hint">Načítám katalog…</div>
+      <div v-else class="grid" :class="{ 'grid--list': view === 'seznam' }">
         <SgVehicleCard
-          v-for="v in list"
-          :key="v.type + v.number"
-          :type="v.type"
-          :number="v.number"
-          :operator="v.operator"
-          :category="game.cats[v.cat].label"
-          :category-color="game.cats[v.cat].color"
-          :category-icon="game.cats[v.cat].icon"
-          :rarity="v.rarity"
-          :found="v.found"
-          :is-new="v.isNew"
-          @click="detail = v"
-        />
-        <SgVehicleCard
-          v-for="i in lockedSlots"
-          :key="'lock' + i"
-          locked
-          :category-color="filter === 'all' ? 'var(--cat-train)' : game.cats[filter].color"
+          v-for="item in list"
+          :key="item.v.id"
+          :locked="!item.collected"
+          :type="item.v.shortName"
+          :operator="item.v.manufacturer"
+          :category="game.cats[item.v.category].label"
+          :category-color="game.cats[item.v.category].color"
+          :category-icon="game.cats[item.v.category].icon"
+          :rarity="item.collected ? item.v.rarity : undefined"
+          :is-new="item.collected && item.v.id === newestId"
+          @click="item.collected && (detail = item.v)"
         />
       </div>
     </div>
@@ -119,15 +118,16 @@ const previewStyle = computed(() =>
           <div class="sheet__preview" :style="previewStyle"><SgIcon :name="detailCat.icon" :size="84" /></div>
           <div class="sheet__head">
             <div>
-              <div class="sheet__code">{{ detail.type }} #{{ detail.number }}</div>
-              <div class="sheet__sub">{{ detailCat.label }} · {{ detail.operator }}</div>
+              <div class="sheet__code">{{ detail.shortName }}</div>
+              <div class="sheet__sub">{{ detail.model }}</div>
             </div>
             <SgBadge :color="detailCat.color" variant="solid" :icon="detailCat.icon">{{ detailCat.label }}</SgBadge>
           </div>
           <div class="sheet__stats">
             <SgStatTile :value="stars[detail.rarity]" label="Vzácnost" :color="`var(--rarity-${detail.rarity})`" icon="star" />
-            <SgStatTile :value="detail.found" label="Nalezeno" color="var(--brand)" icon="calendar-check" />
+            <SgStatTile :value="detail.operator" label="Dopravce" color="var(--brand)" icon="award" />
           </div>
+          <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }}</div>
         </div>
       </div>
     </Teleport>
@@ -159,6 +159,8 @@ const previewStyle = computed(() =>
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .grid--list { grid-template-columns: 1fr; }
 
+.hint { padding: 28px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
+
 .sheet { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: flex-end; background: rgba(11, 15, 20, 0.45); }
 .sheet__panel {
   position: relative;
@@ -181,4 +183,13 @@ const previewStyle = computed(() =>
 .sheet__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 24px; letter-spacing: -0.01em; }
 .sheet__sub { color: var(--text-muted); margin-top: 2px; }
 .sheet__stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.sheet__maker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  svg { color: var(--text-muted); }
+}
 </style>
