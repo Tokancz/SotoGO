@@ -15,6 +15,7 @@ import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
 import { catalogApi } from '@/services/catalog'
 import { progressApi } from '@/services/progress'
+import { mediaUrl } from '@/services/api'
 import { CATS, CHALLENGES } from '@/data/seed'
 
 interface State {
@@ -22,6 +23,8 @@ interface State {
   catalog: CatalogVehicle[]
   /** Catalog ids the player has collected, newest first. */
   collectedIds: string[]
+  /** The player's catch photo per collected vehicle id (absolute URL). */
+  collectedPhotos: Record<string, string>
   stops: ApiStop[]
   /** Stop ids the player has visited. */
   visitedIds: string[]
