@@ -4,6 +4,7 @@ import cors from 'cors'
 import { config } from './config.js'
 import { authRouter } from './routes/auth.js'
 import { catalogRouter } from './routes/catalog.js'
+import { meRouter } from './routes/me.js'
 
 const app = express()
 
@@ -15,6 +16,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRouter)
+app.use('/api/me', meRouter)
 app.use('/api', catalogRouter)
 
 // Final error handler — keeps unexpected failures from leaking internals.

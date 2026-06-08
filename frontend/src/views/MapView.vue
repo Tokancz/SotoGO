@@ -190,7 +190,11 @@ onMounted(async () => {
   map.value = m
   setTimeout(() => m.invalidateSize(), 60)
 
-  await game.loadStops({ lat: PLAYER_LOC.lat, lng: PLAYER_LOC.lng, km: 2.5 })
+  // Load stops + the player's visits together so visited pins render dimmed.
+  await Promise.all([
+    game.loadStops({ lat: PLAYER_LOC.lat, lng: PLAYER_LOC.lng, km: 2.5 }),
+    game.loadProgress(),
+  ])
   renderStops(m)
 
   // Preselect the nearest stop for the bottom sheet.
@@ -207,10 +211,10 @@ onBeforeUnmount(() => {
   map.value = null
 })
 
-function visitSelected() {
+async function visitSelected() {
   const stop = selected.value
   if (!stop || game.visitedSet.has(stop.id)) return
-  game.visitStop(stop.id, rewardFor(stop))
+  await game.visitStop(stop.id)
   markersById[stop.id]?.getElement()?.firstElementChild?.classList.add('sg-stop-pin--visited')
 }
 </script>

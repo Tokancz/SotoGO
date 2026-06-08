@@ -14,6 +14,7 @@ import type { ApiStop, CatalogVehicle, CategoryKey, Player } from '@/types/game'
 import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
 import { catalogApi } from '@/services/catalog'
+import { progressApi } from '@/services/progress'
 import { ACHIEVEMENTS, CATS, CHALLENGES } from '@/data/seed'
 
 interface State {
@@ -136,33 +137,47 @@ export const useGameStore = defineStore('game', {
       }
     },
 
-    /**
-     * Award XP to the signed-in account. Client-side only for now (not persisted)
-     * — the server must own XP/leveling in production (docs/ARCHITECTURE.md).
-     */
-    awardXp(amount: number) {
+    /** Hydrate the player's saved collection + visits from the server. */
+    async loadProgress() {
       const auth = useAuthStore()
-      if (auth.user) auth.user.xp += amount
+      if (!auth.isAuthenticated) return
+      try {
+        const { collectedIds, visitedIds } = await progressApi.get()
+        this.collectedIds = collectedIds
+        this.visitedIds = visitedIds
+      } catch (err) {
+        console.error('Načtení postupu selhalo:', err)
+      }
     },
 
-    /** Mark a catalog model as collected (from the camera capture flow). */
-    collectVehicle(id: string, xp = 100) {
+    /** Persist a catch. XP is awarded server-side; the user is updated from it. */
+    async collectVehicle(id: string) {
       if (this.collectedIds.includes(id)) return
-      this.collectedIds.unshift(id)
-      this.awardXp(xp)
+      try {
+        const res = await progressApi.collectVehicle(id)
+        this.collectedIds = res.collectedIds
+        useAuthStore().setUser(res.user)
+      } catch (err) {
+        console.error('Uložení úlovku selhalo:', err)
+      }
     },
 
     /** Collect by category + short name (what the OCR/capture flow knows). */
-    collectByModel(category: CategoryKey, shortName: string, xp = 100) {
+    async collectByModel(category: CategoryKey, shortName: string) {
       const v = this.catalog.find((x) => x.category === category && x.shortName === shortName)
-      if (v) this.collectVehicle(v.id, xp)
+      if (v) await this.collectVehicle(v.id)
     },
 
-    /** Register a stop visit, awarding XP the first time. */
-    visitStop(id: string, xp = 30) {
+    /** Persist a stop visit. XP is awarded server-side. */
+    async visitStop(id: string) {
       if (this.visitedIds.includes(id)) return
-      this.visitedIds.push(id)
-      this.awardXp(xp)
+      try {
+        const res = await progressApi.visitStop(id)
+        this.visitedIds = res.visitedIds
+        useAuthStore().setUser(res.user)
+      } catch (err) {
+        console.error('Uložení návštěvy selhalo:', err)
+      }
     },
   },
 })

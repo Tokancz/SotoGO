@@ -65,3 +65,20 @@ CREATE TABLE IF NOT EXISTS route_geometries (
   category  TEXT NOT NULL,            -- tram | bus | metro | trolley | train
   points    JSONB NOT NULL
 );
+
+-- ── Player progress ──────────────────────────────────────────────────────────
+-- Which catalog models a player has collected, and which stops they've visited.
+-- The composite PKs make catches/visits idempotent (collect/visit once).
+CREATE TABLE IF NOT EXISTS user_vehicles (
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vehicle_type_id BIGINT NOT NULL REFERENCES vehicle_types(id) ON DELETE CASCADE,
+  found_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, vehicle_type_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_stops (
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stop_id    BIGINT NOT NULL REFERENCES stops(id) ON DELETE CASCADE,
+  visited_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, stop_id)
+);

@@ -27,8 +27,8 @@ watch(phase, (p) => {
 
 onBeforeUnmount(() => clearTimeout(scanTimer))
 
-function addToPark() {
-  game.collectByModel(vehicle.cat, vehicle.type, reward)
+async function addToPark() {
+  await game.collectByModel(vehicle.cat, vehicle.type)
   emit('caught')
   emit('close')
 }

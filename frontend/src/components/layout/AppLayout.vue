@@ -37,6 +37,7 @@ function onCaught() {
 
 onMounted(() => {
   game.ensureCatalog()
+  game.loadProgress()
 })
 </script>
 

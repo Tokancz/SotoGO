@@ -42,6 +42,11 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = res.user
   }
 
+  /** Replace the current user (e.g. after the server awards XP). */
+  function setUser(u: User) {
+    user.value = u
+  }
+
   /** Re-hydrate the user from a persisted token (called by the router guard). */
   async function fetchMe() {
     if (!token.value) return
@@ -59,5 +64,5 @@ export const useAuthStore = defineStore('auth', () => {
     sessionStorage.removeItem(TOKEN_KEY)
   }
 
-  return { token, user, isAuthenticated, login, register, loginWithGoogle, fetchMe, logout }
+  return { token, user, isAuthenticated, login, register, loginWithGoogle, setUser, fetchMe, logout }
 })

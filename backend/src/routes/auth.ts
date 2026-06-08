@@ -8,32 +8,9 @@ import { signToken } from '../services/jwt.js'
 import { googleConfigured, verifyGoogleIdToken } from '../services/google.js'
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js'
 import { asyncHandler } from '../util/asyncHandler.js'
+import { publicUser, type UserRow } from '../lib/user.js'
 
 export const authRouter = Router()
-
-interface UserRow {
-  id: string
-  username: string
-  email: string
-  password_hash: string | null
-  google_id: string | null
-  avatar_url: string | null
-  level: number
-  xp: number
-  created_at: string
-}
-
-/** Shape sent to the client — never leaks the password hash. */
-function publicUser(u: UserRow) {
-  return {
-    id: String(u.id),
-    username: u.username,
-    email: u.email,
-    avatarUrl: u.avatar_url,
-    level: u.level,
-    xp: u.xp,
-  }
-}
 
 function sessionFor(user: UserRow) {
   return { token: signToken({ sub: String(user.id), email: user.email }), user: publicUser(user) }
