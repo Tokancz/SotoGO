@@ -127,6 +127,7 @@ async function main() {
       lines,
       categories,
       isGym,
+      routeIds: [...st.routeIds],
     }
   })
 
@@ -140,12 +141,12 @@ async function main() {
       const slice = rows.slice(i, i + BATCH)
       const values: unknown[] = []
       const tuples = slice.map((r, j) => {
-        const o = j * 7
-        values.push(r.id, r.name, r.lat, r.lon, r.lines, r.categories, r.isGym)
-        return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7})`
+        const o = j * 8
+        values.push(r.id, r.name, r.lat, r.lon, r.lines, r.categories, r.isGym, r.routeIds)
+        return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8})`
       })
       await client.query(
-        `insert into stops (gtfs_node_id, name, latitude, longitude, lines, categories, is_gym)
+        `insert into stops (gtfs_node_id, name, latitude, longitude, lines, categories, is_gym, route_ids)
          values ${tuples.join(',')}`,
         values,
       )

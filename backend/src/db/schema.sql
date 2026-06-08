@@ -48,5 +48,20 @@ CREATE TABLE IF NOT EXISTS stops (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- route_ids: the GTFS routes serving this station (for drawing tracks on tap).
+ALTER TABLE stops ADD COLUMN IF NOT EXISTS route_ids TEXT[] NOT NULL DEFAULT '{}';
+
 CREATE INDEX IF NOT EXISTS stops_latlng_idx ON stops (latitude, longitude);
 CREATE INDEX IF NOT EXISTS stops_gym_idx ON stops (is_gym);
+CREATE INDEX IF NOT EXISTS stops_name_idx ON stops (lower(name));
+
+-- ── Route geometries ─────────────────────────────────────────────────────────
+-- One representative shape (polyline) per route, for drawing colored tracks when
+-- a stop is tapped. Imported from PID GTFS shapes (npm run import:routes).
+-- points is a JSON array of [lat, lng] pairs.
+CREATE TABLE IF NOT EXISTS route_geometries (
+  route_id  TEXT PRIMARY KEY,
+  line      TEXT NOT NULL,
+  category  TEXT NOT NULL,            -- tram | bus | metro | trolley | train
+  points    JSONB NOT NULL
+);

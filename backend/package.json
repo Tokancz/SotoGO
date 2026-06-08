@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "migrate": "tsx src/db/migrate.ts",
     "seed:vehicles": "tsx src/db/seedVehicleTypes.ts",
-    "import:stops": "tsx src/db/importStops.ts"
+    "import:stops": "tsx src/db/importStops.ts",
+    "import:routes": "tsx src/db/importRoutes.ts"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",

@@ -84,6 +84,15 @@ export interface CatalogVehicle {
   rarity: Rarity;
 }
 
+/** A route's track geometry from GET /api/stops/:id/routes. */
+export interface RouteGeometry {
+  routeId: string;
+  line: string;
+  category: string;
+  /** Ordered [lat, lng] points along the route. */
+  points: [number, number][];
+}
+
 /** A stop/station from GET /api/stops (PID GTFS, platforms grouped per node). */
 export interface ApiStop {
   id: string;

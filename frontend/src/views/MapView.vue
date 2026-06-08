@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import L from 'leaflet'
 import { useGameStore } from '@/stores/game'
+import { catalogApi } from '@/services/catalog'
 import type { ApiStop } from '@/types/game'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgIcon from '@/components/SgIcon.vue'
@@ -21,10 +22,25 @@ const CAT_HEX: Record<string, string> = {
 }
 const CAT_ORDER = ['metro', 'tram', 'trolley', 'train', 'bus'] as const
 
+// Track draw order + thickness so metro sits on top of buses.
+const TRACK_ORDER: Record<string, number> = { bus: 0, trolley: 1, train: 2, tram: 3, metro: 4 }
+function trackWeight(cat: string): number {
+  return cat === 'metro' ? 5 : cat === 'tram' ? 4 : 3
+}
+
 const mapEl = ref<HTMLDivElement | null>(null)
 const map = shallowRef<L.Map | null>(null)
 const selected = ref<ApiStop | null>(null)
 const markersById: Record<string, L.Marker> = {}
+let trackLayer: L.LayerGroup | null = null
+
+// line short name → category, learned from the selected stop's routes (so the
+// sheet's line chips can be colored by category, matching the drawn tracks).
+const lineCats = ref<Record<string, string>>({})
+
+// Stop search
+const query = ref('')
+const results = ref<ApiStop[]>([])
 
 function haversine(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000
@@ -68,26 +84,87 @@ const selectedVisited = computed(() =>
 )
 
 function lineColor(line: string): string {
-  return LINE_HEX[line] ?? 'var(--slate-500)'
+  const cat = lineCats.value[line]
+  if (cat) return CAT_HEX[cat] ?? 'var(--slate-500)'
+  return LINE_HEX[line] ?? 'var(--slate-500)' // fallback before routes load
+}
+
+function addMarker(m: L.Map, stop: ApiStop): L.Marker {
+  const { color, label } = pinStyle(stop)
+  const visited = game.visitedSet.has(stop.id) ? ' sg-stop-pin--visited' : ''
+  const gym = stop.isGym ? ' sg-stop-pin--gym' : ''
+  const icon = L.divIcon({
+    className: '',
+    iconSize: [34, 42],
+    iconAnchor: [17, 42],
+    html: `<div class="sg-stop-pin${gym}${visited}" style="--pin:${color}">
+             <div class="sg-stop-pin__head"><span>${label}</span></div>
+           </div>`,
+  })
+  const marker = L.marker([stop.lat, stop.lng], { icon }).addTo(m)
+  marker.on('click', () => selectStop(stop))
+  markersById[stop.id] = marker
+  return marker
 }
 
 function renderStops(m: L.Map) {
-  for (const stop of game.stops) {
-    const { color, label } = pinStyle(stop)
-    const visited = game.visitedSet.has(stop.id) ? ' sg-stop-pin--visited' : ''
-    const gym = stop.isGym ? ' sg-stop-pin--gym' : ''
-    const icon = L.divIcon({
-      className: '',
-      iconSize: [34, 42],
-      iconAnchor: [17, 42],
-      html: `<div class="sg-stop-pin${gym}${visited}" style="--pin:${color}">
-               <div class="sg-stop-pin__head"><span>${label}</span></div>
-             </div>`,
-    })
-    const marker = L.marker([stop.lat, stop.lng], { icon }).addTo(m)
-    marker.on('click', () => (selected.value = stop))
-    markersById[stop.id] = marker
+  for (const stop of game.stops) addMarker(m, stop)
+}
+
+/** Draw the category-colored tracks for every route serving a stop. */
+async function drawTracks(stop: ApiStop) {
+  if (!map.value || !trackLayer) return
+  trackLayer.clearLayers()
+  let routes
+  try {
+    routes = await catalogApi.routes(stop.id)
+  } catch {
+    return
   }
+  // Remember each line's category so the sheet chips match the track colors.
+  const cats: Record<string, string> = {}
+  for (const r of routes) cats[r.line] = r.category
+  lineCats.value = cats
+
+  routes.sort((a, b) => (TRACK_ORDER[a.category] ?? 0) - (TRACK_ORDER[b.category] ?? 0))
+  for (const r of routes) {
+    L.polyline(r.points, {
+      color: CAT_HEX[r.category] ?? '#888',
+      weight: trackWeight(r.category),
+      opacity: 0.7,
+      lineJoin: 'round',
+    }).addTo(trackLayer)
+  }
+}
+
+/** Select a stop: show its sheet, ensure it has a marker, and draw its tracks. */
+function selectStop(stop: ApiStop) {
+  selected.value = stop
+  if (map.value && !markersById[stop.id]) addMarker(map.value, stop)
+  void drawTracks(stop)
+}
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(query, (q) => {
+  clearTimeout(searchTimer)
+  if (q.trim().length < 2) {
+    results.value = []
+    return
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      results.value = await catalogApi.searchStops(q.trim())
+    } catch {
+      results.value = []
+    }
+  }, 250)
+})
+
+function selectResult(stop: ApiStop) {
+  query.value = ''
+  results.value = []
+  map.value?.flyTo([stop.lat, stop.lng], 16, { duration: 0.8 })
+  selectStop(stop)
 }
 
 onMounted(async () => {
@@ -109,6 +186,7 @@ onMounted(async () => {
   })
   L.marker([PLAYER_LOC.lat, PLAYER_LOC.lng], { icon: playerIcon, zIndexOffset: 1000 }).addTo(m)
 
+  trackLayer = L.layerGroup().addTo(m)
   map.value = m
   setTimeout(() => m.invalidateSize(), 60)
 
@@ -155,7 +233,20 @@ function visitSelected() {
       </div>
       <div class="hud__panel hud__search">
         <SgIcon name="search" :size="18" />
-        <span>Hledat zastávku nebo linku…</span>
+        <input
+          v-model="query"
+          class="hud__searchinput"
+          type="search"
+          placeholder="Hledat zastávku…"
+          autocomplete="off"
+        />
+        <ul v-if="results.length" class="hud__results">
+          <li v-for="r in results" :key="r.id" class="hud__result" @click="selectResult(r)">
+            <SgIcon name="map-pin" :size="15" />
+            <span class="hud__resultname">{{ r.name }}</span>
+            <span class="hud__resultlines">{{ r.lines.slice(0, 4).join(' · ') }}</span>
+          </li>
+        </ul>
       </div>
     </div>
 
@@ -233,7 +324,46 @@ function visitSelected() {
 }
 .hud__track { height: 6px; background: rgba(255, 255, 255, 0.16); border-radius: 999px; overflow: hidden; }
 .hud__fill { height: 100%; background: var(--xp); border-radius: 999px; transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.hud__search { display: flex; align-items: center; gap: 9px; padding: 10px 14px; color: var(--text-on-night-muted); font-size: 14px; }
+.hud__search { display: flex; align-items: center; gap: 9px; padding: 10px 14px; color: var(--text-on-night-muted); font-size: 14px; position: relative; }
+.hud__searchinput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-on-night);
+  font-family: var(--font-body);
+  font-size: 14px;
+  &::placeholder { color: var(--text-on-night-muted); }
+  &::-webkit-search-cancel-button { filter: invert(0.6); }
+}
+.hud__results {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 10;
+}
+.hud__result {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text-secondary);
+  &:hover { background: var(--surface-sunken); }
+}
+.hud__resultname { flex: 1; min-width: 0; font-weight: var(--fw-medium); color: var(--text-primary); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud__resultlines { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); flex: none; }
 
 .locate {
   position: absolute;

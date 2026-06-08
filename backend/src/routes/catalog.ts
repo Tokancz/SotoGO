@@ -35,10 +35,15 @@ catalogRouter.get(
     const near = typeof req.query.near === 'string' ? req.query.near : ''
     const km = Number(req.query.km ?? 3)
     const gymsOnly = req.query.gyms === '1' || req.query.gyms === 'true'
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
 
     const where: string[] = []
     const params: unknown[] = []
 
+    if (q) {
+      params.push(`%${q}%`)
+      where.push(`name ilike $${params.length}`)
+    }
     if (near) {
       const [latStr, lngStr] = near.split(',')
       const lat = Number(latStr)
@@ -59,7 +64,8 @@ catalogRouter.get(
     const sql = `select id, gtfs_node_id, name, latitude, longitude, lines, categories, is_gym
                    from stops
                   ${where.length ? 'where ' + where.join(' and ') : ''}
-                  order by name`
+                  order by name
+                  ${q ? 'limit 12' : ''}`
     const { rows } = await pool.query(sql, params)
     res.json({
       stops: rows.map((r) => ({
@@ -71,6 +77,32 @@ catalogRouter.get(
         lines: r.lines,
         categories: r.categories,
         isGym: r.is_gym,
+      })),
+    })
+  }),
+)
+
+// GET /api/stops/:id/routes — track geometries for the routes serving a stop.
+catalogRouter.get(
+  '/stops/:id/routes',
+  asyncHandler(async (req, res) => {
+    const stop = await pool.query<{ route_ids: string[] }>(
+      'select route_ids from stops where id = $1',
+      [req.params.id],
+    )
+    const routeIds = stop.rows[0]?.route_ids ?? []
+    if (routeIds.length === 0) return res.json({ routes: [] })
+
+    const { rows } = await pool.query(
+      'select route_id, line, category, points from route_geometries where route_id = any($1)',
+      [routeIds],
+    )
+    res.json({
+      routes: rows.map((r) => ({
+        routeId: r.route_id,
+        line: r.line,
+        category: r.category,
+        points: r.points as [number, number][],
       })),
     })
   }),
