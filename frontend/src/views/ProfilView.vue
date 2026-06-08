@@ -9,6 +9,7 @@ import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgSwitch from '@/components/ui/SgSwitch.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import ReportBugSheet from '@/components/layout/ReportBugSheet.vue'
 
 const game = useGameStore()
 const player = computed(() => game.player)
@@ -23,6 +24,7 @@ function logout() {
 
 const push = ref(true)
 const sound = ref(true)
+const reportOpen = ref(false)
 </script>
 
 <template>
@@ -88,12 +90,21 @@ const sound = ref(true)
           <span class="settings__label">Soukromí</span>
           <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
         </div>
+        <button type="button" class="settings__row settings__row--button" @click="reportOpen = true">
+          <SgIcon name="bug" :size="20" />
+          <span class="settings__label">Nahlásit chybu</span>
+          <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
+        </button>
         <button type="button" class="settings__row settings__row--action" @click="logout">
           <SgIcon name="log-out" :size="20" />
           <span class="settings__label">Odhlásit se</span>
         </button>
       </div>
     </div>
+
+    <Teleport to=".app-shell">
+      <ReportBugSheet v-if="reportOpen" @close="reportOpen = false" />
+    </Teleport>
   </div>
 </template>
 
@@ -152,6 +163,14 @@ const sound = ref(true)
 }
 .settings__label { flex: 1; font-weight: var(--fw-medium); font-size: 15px; color: var(--text-primary); text-align: left; }
 .settings__chevron { color: var(--text-muted); }
+.settings__row--button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  &:hover { background: var(--surface-sunken); }
+}
 .settings__row--action {
   width: 100%;
   border: none;

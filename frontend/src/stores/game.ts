@@ -10,12 +10,12 @@
 // until their backend exists. Category UI metadata (CATS) is design data.
 
 import { defineStore } from 'pinia'
-import type { ApiStop, CatalogVehicle, CategoryKey, Player } from '@/types/game'
+import type { Achievement, ApiStop, CatalogVehicle, CategoryKey, Player } from '@/types/game'
 import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
 import { catalogApi } from '@/services/catalog'
 import { progressApi } from '@/services/progress'
-import { ACHIEVEMENTS, CATS, CHALLENGES } from '@/data/seed'
+import { CATS, CHALLENGES } from '@/data/seed'
 
 interface State {
   cats: typeof CATS
@@ -26,7 +26,6 @@ interface State {
   /** Stop ids the player has visited. */
   visitedIds: string[]
   challenges: typeof CHALLENGES
-  achievements: typeof ACHIEVEMENTS
   catalogLoaded: boolean
 }
 
@@ -38,11 +37,6 @@ export const useGameStore = defineStore('game', {
     stops: [],
     visitedIds: [],
     challenges: CHALLENGES.map((c) => ({ ...c, value: 0, done: false })),
-    achievements: ACHIEVEMENTS.map((a) => ({
-      ...a,
-      unlocked: false,
-      value: a.value != null ? 0 : undefined,
-    })),
     catalogLoaded: false,
   }),
 
@@ -104,7 +98,38 @@ export const useGameStore = defineStore('game', {
     dailyDoneCount: (s) => s.challenges.filter((c) => c.done).length,
     dailyXpAvailable: (s) =>
       s.challenges.filter((c) => !c.done).reduce((sum, c) => sum + c.reward, 0),
-    unlockedAchievements: (s) => s.achievements.filter((a) => a.unlocked).length,
+
+    /** Achievements computed live from real progress (collection + visits). */
+    achievements(): Achievement[] {
+      const found = this.totalFound
+      const visited = this.visitedIds.length
+      const byCat = this.countByCategory
+      const catTotal = this.catalogCountByCategory
+      const mk = (
+        title: string,
+        desc: string,
+        icon: string,
+        tier: Achievement['tier'],
+        value: number,
+        max: number,
+      ): Achievement => ({ title, desc, icon, tier, value, max, unlocked: max > 0 && value >= max })
+
+      return [
+        mk('První úlovek', 'Vyfoť 1. vozidlo', 'sparkles', 'common', found, 1),
+        mk('Sběratel', 'Ulov 10 modelů', 'layers', 'rare', found, 10),
+        mk('Mistr sbírky', 'Ulov 25 modelů', 'crown', 'epic', found, 25),
+        mk('Lovec tramvají', 'Všechny tramvaje', 'tram-front', 'epic', byCat.tram, catTotal.tram),
+        mk('Pán autobusů', 'Všechny autobusy', 'bus', 'rare', byCat.bus, catTotal.bus),
+        mk('Metro expert', 'Celé metro', 'train-front-tunnel', 'epic', byCat.metro, catTotal.metro),
+        mk('Cestovatel', 'Navštiv 5 zastávek', 'map-pin', 'common', visited, 5),
+        mk('Šotouš na cestách', 'Navštiv 50 zastávek', 'route', 'rare', visited, 50),
+        mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', found, this.totalAll),
+      ]
+    },
+
+    unlockedAchievements(): number {
+      return this.achievements.filter((a) => a.unlocked).length
+    },
 
     /** Collected catalog entries, newest first (for the Profile feed). */
     recentVehicles(state): CatalogVehicle[] {

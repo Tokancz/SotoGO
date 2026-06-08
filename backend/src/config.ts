@@ -21,4 +21,7 @@ export const config = {
   // Optional: when empty, the /api/auth/google route reports that Google
   // sign-in isn't configured instead of crashing.
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  // Optional: GitHub token + repo ("owner/name") for the in-app bug reporter.
+  githubToken: process.env.GITHUB_TOKEN ?? '',
+  githubRepo: process.env.GITHUB_REPO ?? '',
 }
