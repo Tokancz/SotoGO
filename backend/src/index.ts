@@ -1,4 +1,5 @@
 // ŠotoGO API bootstrap.
+import { mkdirSync } from 'node:fs'
 import express, { type ErrorRequestHandler } from 'express'
 import cors from 'cors'
 import { config } from './config.js'
@@ -11,6 +12,10 @@ const app = express()
 
 app.use(cors({ origin: config.clientOrigins }))
 app.use(express.json())
+
+// Serve uploaded catch photos. Ensure the dir exists so static + writes agree.
+mkdirSync(config.uploadDir, { recursive: true })
+app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d', immutable: true }))
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true })

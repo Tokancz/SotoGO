@@ -1,6 +1,7 @@
 // Loads and validates environment configuration. Throws early if something
 // required is missing, so the server never boots in a half-configured state.
 import 'dotenv/config'
+import { resolve } from 'node:path'
 
 function required(name: string): string {
   const value = process.env[name]
@@ -28,4 +29,8 @@ export const config = {
   // Optional: GitHub token + repo ("owner/name") for the in-app bug reporter.
   githubToken: process.env.GITHUB_TOKEN ?? '',
   githubRepo: process.env.GITHUB_REPO ?? '',
+  // Catch-photo uploads. Local disk for dev; point UPLOAD_DIR at a mounted
+  // volume (or swap for S3) in production. Files are served at /uploads.
+  uploadDir: resolve(process.env.UPLOAD_DIR ?? './uploads'),
+  maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 6 * 1024 * 1024),
 }

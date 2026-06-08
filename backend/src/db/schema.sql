@@ -73,8 +73,12 @@ CREATE TABLE IF NOT EXISTS user_vehicles (
   user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   vehicle_type_id BIGINT NOT NULL REFERENCES vehicle_types(id) ON DELETE CASCADE,
   found_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- The player's own photo of the catch (served from /uploads). NULL if none.
+  image_url       TEXT,
   PRIMARY KEY (user_id, vehicle_type_id)
 );
+-- Backfill the column on databases created before photos existed.
+ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 CREATE TABLE IF NOT EXISTS user_stops (
   user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

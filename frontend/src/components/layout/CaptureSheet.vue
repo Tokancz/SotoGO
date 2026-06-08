@@ -24,8 +24,14 @@ const corners = ['nw', 'ne', 'sw', 'se'] as const
 const RETICLE: CropRect = { x: 0.13, y: 0.36, w: 0.74, h: 0.2 }
 
 const stillUrl = ref('')
+// The captured photo to upload with the catch (JPEG blob, or the picked file).
+const photoBlob = ref<Blob | null>(null)
 const recognizedNumber = ref<string | null>(null)
 const scanError = ref(false)
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.85))
+}
 
 // The resolved catalog model shown on the reward screen.
 const matched = ref<CatalogVehicle | null>(null)
@@ -73,8 +79,11 @@ function applyNumber(number: string | null) {
 
 async function capture() {
   if (!videoEl.value || !camera.active.value) return
-  // Grab frames before releasing the camera.
-  stillUrl.value = camera.captureCanvas(videoEl.value).toDataURL('image/jpeg', 0.8)
+  // Grab frames before releasing the camera: full frame for the saved photo,
+  // the reticle crop for OCR.
+  const full = camera.captureCanvas(videoEl.value)
+  stillUrl.value = full.toDataURL('image/jpeg', 0.8)
+  photoBlob.value = await canvasToBlob(full)
   const crop = camera.captureCanvas(videoEl.value, RETICLE)
   camera.stop()
   phase.value = 'scan'
@@ -94,6 +103,7 @@ async function onFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   stillUrl.value = URL.createObjectURL(file)
+  photoBlob.value = file
   phase.value = 'scan'
   scanError.value = false
   try {
@@ -116,6 +126,7 @@ async function restart() {
   matched.value = null
   scanError.value = false
   stillUrl.value = ''
+  photoBlob.value = null
   phase.value = 'aim'
   await nextTick()
   if (videoEl.value) await camera.start(videoEl.value)
@@ -123,7 +134,7 @@ async function restart() {
 
 async function addToPark() {
   if (!matched.value) return
-  await game.collectVehicle(matched.value.id)
+  await game.collectVehicle(matched.value.id, photoBlob.value)
   emit('caught')
   emit('close')
 }

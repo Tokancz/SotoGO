@@ -10,12 +10,30 @@ interface MutationResult {
 
 export const progressApi = {
   get: () =>
-    api.get<{ collectedIds: string[]; visitedIds: string[] }>('/me/progress').then((r) => r.data),
-
-  collectVehicle: (vehicleId: string) =>
     api
-      .post<MutationResult & { collectedIds: string[] }>('/me/vehicles', { vehicleId })
+      .get<{ collectedIds: string[]; visitedIds: string[]; photos: Record<string, string> }>(
+        '/me/progress',
+      )
       .then((r) => r.data),
+
+  collectVehicle: (vehicleId: string, photo?: Blob | null) => {
+    // Send multipart when there's a photo so the catch + image land together.
+    let body: FormData | { vehicleId: string }
+    if (photo) {
+      const form = new FormData()
+      form.append('vehicleId', vehicleId)
+      form.append('photo', photo, 'catch.jpg')
+      body = form
+    } else {
+      body = { vehicleId }
+    }
+    return api
+      .post<MutationResult & { collectedIds: string[]; imageUrl: string | null }>(
+        '/me/vehicles',
+        body,
+      )
+      .then((r) => r.data)
+  },
 
   visitStop: (stopId: string) =>
     api

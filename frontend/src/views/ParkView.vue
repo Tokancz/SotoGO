@@ -39,6 +39,7 @@ const stars: Record<Rarity, string> = {
 }
 
 const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
+const detailPhoto = computed(() => (detail.value ? game.collectedPhotos[detail.value.id] : undefined))
 const previewStyle = computed(() =>
   detailCat.value
     ? {
@@ -106,6 +107,7 @@ const previewStyle = computed(() =>
           :category-icon="game.cats[item.v.category].icon"
           :rarity="item.collected ? item.v.rarity : undefined"
           :is-new="item.collected && item.v.id === newestId"
+          :image="item.collected ? game.collectedPhotos[item.v.id] : undefined"
           :compact="view === 'seznam'"
           @click="item.collected && (detail = item.v)"
         />
@@ -116,7 +118,10 @@ const previewStyle = computed(() =>
       <div v-if="detail && detailCat" class="sheet" @click.self="detail = null">
         <div class="sheet__panel">
           <div class="sheet__handle" />
-          <div class="sheet__preview" :style="previewStyle"><SgIcon :name="detailCat.icon" :size="84" /></div>
+          <div class="sheet__preview" :class="{ 'sheet__preview--photo': detailPhoto }" :style="detailPhoto ? undefined : previewStyle">
+            <img v-if="detailPhoto" :src="detailPhoto" :alt="detail.shortName" />
+            <SgIcon v-else :name="detailCat.icon" :size="84" />
+          </div>
           <div class="sheet__head">
             <div>
               <div class="sheet__code">{{ detail.shortName }}</div>
@@ -185,7 +190,10 @@ const previewStyle = computed(() =>
   align-items: center;
   justify-content: center;
   margin: 0 auto 16px;
+  overflow: hidden;
 }
+.sheet__preview--photo { background: var(--surface-sunken); }
+.sheet__preview img { width: 100%; height: 100%; object-fit: cover; }
 .sheet__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .sheet__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 24px; letter-spacing: -0.01em; }
 .sheet__sub { color: var(--text-muted); margin-top: 2px; }

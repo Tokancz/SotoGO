@@ -15,6 +15,7 @@ import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
 import { catalogApi } from '@/services/catalog'
 import { progressApi } from '@/services/progress'
+import { mediaUrl } from '@/services/api'
 import { CATS, CHALLENGES } from '@/data/seed'
 
 interface State {
@@ -22,6 +23,8 @@ interface State {
   catalog: CatalogVehicle[]
   /** Catalog ids the player has collected, newest first. */
   collectedIds: string[]
+  /** The player's catch photo per collected vehicle id (absolute URL). */
+  collectedPhotos: Record<string, string>
   stops: ApiStop[]
   /** Stop ids the player has visited. */
   visitedIds: string[]
@@ -34,6 +37,7 @@ export const useGameStore = defineStore('game', {
     cats: CATS,
     catalog: [],
     collectedIds: [],
+    collectedPhotos: {},
     stops: [],
     visitedIds: [],
     challenges: CHALLENGES.map((c) => ({ ...c, value: 0, done: false })),
@@ -167,20 +171,28 @@ export const useGameStore = defineStore('game', {
       const auth = useAuthStore()
       if (!auth.isAuthenticated) return
       try {
-        const { collectedIds, visitedIds } = await progressApi.get()
+        const { collectedIds, visitedIds, photos } = await progressApi.get()
         this.collectedIds = collectedIds
         this.visitedIds = visitedIds
+        this.collectedPhotos = Object.fromEntries(
+          Object.entries(photos).map(([id, path]) => [id, mediaUrl(path)!]),
+        )
       } catch (err) {
         console.error('Načtení postupu selhalo:', err)
       }
     },
 
-    /** Persist a catch. XP is awarded server-side; the user is updated from it. */
-    async collectVehicle(id: string) {
+    /**
+     * Persist a catch, optionally with the player's photo. XP is awarded
+     * server-side; the user (and the catch photo) are updated from the response.
+     */
+    async collectVehicle(id: string, photo?: Blob | null) {
       if (this.collectedIds.includes(id)) return
       try {
-        const res = await progressApi.collectVehicle(id)
+        const res = await progressApi.collectVehicle(id, photo)
         this.collectedIds = res.collectedIds
+        const url = mediaUrl(res.imageUrl)
+        if (url) this.collectedPhotos = { ...this.collectedPhotos, [id]: url }
         useAuthStore().setUser(res.user)
       } catch (err) {
         console.error('Uložení úlovku selhalo:', err)
@@ -188,9 +200,9 @@ export const useGameStore = defineStore('game', {
     },
 
     /** Collect by category + short name (what the OCR/capture flow knows). */
-    async collectByModel(category: CategoryKey, shortName: string) {
+    async collectByModel(category: CategoryKey, shortName: string, photo?: Blob | null) {
       const v = this.catalog.find((x) => x.category === category && x.shortName === shortName)
-      if (v) await this.collectVehicle(v.id)
+      if (v) await this.collectVehicle(v.id, photo)
     },
 
     /** Persist a stop visit. XP is awarded server-side. */
