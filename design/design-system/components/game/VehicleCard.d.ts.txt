@@ -1,0 +1,36 @@
+import React from 'react';
+
+/**
+ * VehicleCard — a single collectible vehicle tile in the Vozový park ("Pokédex"):
+ * photo, category-colored frame + chip, mono evidenční číslo, rarity, new/locked states.
+ *
+ * @startingPoint section="Game" subtitle="Collectible vehicle / Pokédex card" viewport="220x260"
+ */
+export interface VehicleCardProps {
+  /** Vehicle type code, e.g. "15T", "SOR NS 12". */
+  type: string;
+  /** Evidenční číslo (registration number), e.g. "9325". */
+  number: string;
+  /** Operator / dopravce, e.g. "DPP". */
+  operator?: string;
+  /** Human category label shown in the chip, e.g. "Tramvaj". */
+  category?: string;
+  /** Category color token, e.g. var(--cat-tram). Drives the 2px frame + chip. */
+  categoryColor?: string;
+  /** Lucide <i data-lucide> element for the category chip + photo fallback. */
+  categoryIcon?: React.ReactNode;
+  /** Player photo URL. Falls back to a tinted category glyph. */
+  image?: string;
+  /** Collection rarity tier — adds a colored star bullet. */
+  rarity?: 'common' | 'rare' | 'epic' | 'legendary' | string;
+  /** Date-found string, e.g. "14. 5. 2026". */
+  found?: string;
+  /** Shows the gold "Nový objev!" flag. */
+  isNew?: boolean;
+  /** Undiscovered slot — desaturated lock state, "Zatím neobjeveno". */
+  locked?: boolean;
+  className?: string;
+  onClick?: (e: React.MouseEvent) => void;
+}
+
+export function VehicleCard(props: VehicleCardProps): JSX.Element;

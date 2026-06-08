@@ -1,0 +1,28 @@
+import React from 'react';
+
+/**
+ * LevelRing — circular XP/level progress ring with a level number in the center.
+ *
+ * @startingPoint section="Game" subtitle="Circular level + XP progress ring" viewport="200x200"
+ */
+export interface LevelRingProps {
+  /** Level number shown large in the center. */
+  level: number | string;
+  /** Current XP toward the next level. */
+  value?: number;
+  /** XP needed to fill the ring. */
+  max?: number;
+  /** Outer diameter in px. Default 96. */
+  size?: number;
+  /** Ring thickness in px. Default 9. */
+  stroke?: number;
+  /** Fill color (token recommended). Default var(--xp) gold. */
+  color?: string;
+  /** Small uppercase label above the number. Default "Level". */
+  label?: string;
+  /** Optional mono sub-text under the number (e.g. "2480/3000"). */
+  subText?: string;
+  className?: string;
+}
+
+export function LevelRing(props: LevelRingProps): JSX.Element;

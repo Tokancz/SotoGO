@@ -1,0 +1,20 @@
+import * as React from 'react';
+
+/** XP bars, achievement progress, daily-quest meters. Gold fill = XP, brand = generic. */
+export interface ProgressBarProps extends React.HTMLAttributes<HTMLDivElement> {
+  value?: number;
+  /** @default 100 */
+  max?: number;
+  /** Fill color. @default "var(--brand)" — use var(--xp) for XP. */
+  color?: string;
+  /** Track height in px. @default 10 */
+  height?: number;
+  /** Left label. */
+  label?: React.ReactNode;
+  /** Right value text (defaults to "value / max"). */
+  valueText?: React.ReactNode;
+  /** Show the value text. @default false */
+  showValue?: boolean;
+}
+
+export function ProgressBar(props: ProgressBarProps): JSX.Element;

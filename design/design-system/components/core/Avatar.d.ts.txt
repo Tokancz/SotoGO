@@ -1,0 +1,17 @@
+import * as React from 'react';
+
+/** Player avatar with initials fallback, optional brand ring and gold level chip. */
+export interface AvatarProps extends React.HTMLAttributes<HTMLSpanElement> {
+  /** Image URL; falls back to initials of `name`. */
+  src?: string;
+  /** Player name (initials fallback + alt). */
+  name?: string;
+  /** Pixel diameter. @default 44 */
+  size?: number;
+  /** Gold level chip value. */
+  level?: number | string;
+  /** Brand ring around the avatar. @default false */
+  ring?: boolean;
+}
+
+export function Avatar(props: AvatarProps): JSX.Element;

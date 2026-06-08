@@ -1,0 +1,17 @@
+import * as React from 'react';
+
+/** Compact stat block — big tabular number + label + tinted icon. Profile & Statistiky. */
+export interface StatTileProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** The headline number/value. */
+  value?: React.ReactNode;
+  /** Caption under the value. */
+  label?: React.ReactNode;
+  /** Leading icon node (tinted by `color`). */
+  icon?: React.ReactNode;
+  /** Accent color for the icon chip. @default "var(--brand)" */
+  color?: string;
+  /** Center-align contents. @default false */
+  center?: boolean;
+}
+
+export function StatTile(props: StatTileProps): JSX.Element;

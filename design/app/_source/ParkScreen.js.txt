@@ -1,0 +1,92 @@
+/* global React */
+const SGP = window.OtoGODesignSystem_f7ff63;
+
+function VehicleDetail({ v, onClose }) {
+  const cat = window.SG_DATA.CATS[v.cat];
+  React.useEffect(() => { lucide.createIcons(); });
+  return (
+    <div style={{ position:'absolute', inset:0, zIndex:30, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(11,15,20,.45)' }}></div>
+      <div style={{ position:'relative', background:'var(--surface-card)', borderRadius:'var(--radius-xl) var(--radius-xl) 0 0', padding:'10px 18px 24px', boxShadow:'var(--shadow-xl)' }}>
+        <div style={{ width:40, height:5, borderRadius:999, background:'var(--border-strong)', margin:'0 auto 16px' }}></div>
+        <div style={{ aspectRatio:'16/10', borderRadius:'var(--radius-lg)', background:`color-mix(in srgb, ${cat.color} 10%, white)`, boxShadow:`inset 0 0 0 2px ${cat.color}`, display:'flex', alignItems:'center', justifyContent:'center', color:cat.color, marginBottom:16 }}>
+          <i data-lucide={cat.icon} style={{ width:84, height:84 }}></i>
+        </div>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
+          <div>
+            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:24, letterSpacing:'-.01em' }}>{v.type} #{v.number}</div>
+            <div style={{ color:'var(--text-muted)', marginTop:2 }}>{cat.label} · {v.operator}</div>
+          </div>
+          <SGP.Badge color={cat.color} variant="solid" icon={<i data-lucide={cat.icon}></i>}>{cat.label}</SGP.Badge>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:16 }}>
+          <SGP.StatTile value={v.rarity==='legendary'?'★★★★':v.rarity==='epic'?'★★★':v.rarity==='rare'?'★★':'★'} label="Vzácnost" color={`var(--rarity-${v.rarity})`} icon={<i data-lucide="star"></i>} />
+          <SGP.StatTile value={v.found} label="Nalezeno" color="var(--brand)" icon={<i data-lucide="calendar-check"></i>} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ParkScreen() {
+  const D = window.SG_DATA;
+  const [filter, setFilter] = React.useState('all');
+  const [view, setView] = React.useState('mrizka');
+  const [detail, setDetail] = React.useState(null);
+
+  React.useEffect(() => { lucide.createIcons(); });
+
+  const cats = Object.values(D.CATS);
+  const counts = {};
+  cats.forEach(c => counts[c.key] = D.VEHICLES.filter(v => v.cat === c.key).length);
+  const list = D.VEHICLES.filter(v => filter === 'all' || v.cat === filter);
+  const locked = filter === 'all' ? 4 : (D.LOCKED_COUNT[filter] || 0);
+  const totalFound = D.VEHICLES.length, totalAll = totalFound + Object.values(D.LOCKED_COUNT).reduce((a,b)=>a+b,0);
+
+  return (
+    <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column' }}>
+      <window.TopBar title="Vozový park" subtitle={`${totalFound} z ${totalAll} vozidel`} />
+      <div style={{ flex:1, overflowY:'auto', padding:'14px 16px 90px' }}>
+        {/* completion */}
+        <div style={{ background:'var(--surface-card)', borderRadius:'var(--radius-lg)', boxShadow:'inset 0 0 0 1px var(--border-subtle)', padding:14, marginBottom:14 }}>
+          <SGP.ProgressBar value={totalFound} max={totalAll} color="var(--brand)" label="Dokončení sbírky"
+            showValue valueText={`${Math.round(totalFound/totalAll*100)} %`} />
+        </div>
+
+        {/* category filters */}
+        <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:10, margin:'0 -16px', padding:'0 16px 10px' }}>
+          <SGP.Tag selected={filter==='all'} color="var(--brand)" icon={<i data-lucide="layout-grid"></i>} count={totalFound} onClick={()=>setFilter('all')}>Vše</SGP.Tag>
+          {cats.map(c => (
+            <SGP.Tag key={c.key} selected={filter===c.key} color={c.color} icon={<i data-lucide={c.icon}></i>} count={counts[c.key]} onClick={()=>setFilter(c.key)}>{c.plural}</SGP.Tag>
+          ))}
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', margin:'4px 0 12px' }}>
+          <span className="eyebrow">{filter==='all' ? 'Všechna vozidla' : D.CATS[filter].plural}</span>
+          <SGP.SegmentedControl value={view} onChange={setView} options={[
+            { value:'mrizka', icon:<i data-lucide="layout-grid"></i> },
+            { value:'seznam', icon:<i data-lucide="list"></i> },
+          ]} />
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns: view==='mrizka' ? '1fr 1fr' : '1fr', gap:12 }}>
+          {list.map((v) => {
+            const c = D.CATS[v.cat];
+            return (
+              <SGP.VehicleCard key={v.type+v.number} type={v.type} number={v.number} operator={v.operator}
+                category={c.label} categoryColor={c.color} categoryIcon={<i data-lucide={c.icon}></i>}
+                rarity={v.rarity} found={v.found} isNew={v.isNew} onClick={()=>setDetail(v)} />
+            );
+          })}
+          {Array.from({ length: locked }).map((_, i) => (
+            <SGP.VehicleCard key={'lock'+i} locked categoryColor={filter==='all' ? 'var(--cat-train)' : D.CATS[filter].color} />
+          ))}
+        </div>
+      </div>
+
+      {detail && <VehicleDetail v={detail} onClose={()=>setDetail(null)} />}
+    </div>
+  );
+}
+
+window.ParkScreen = ParkScreen;

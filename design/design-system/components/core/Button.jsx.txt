@@ -1,0 +1,80 @@
+import React from 'react';
+
+const CSS = `
+.sg-btn {
+  --_depth: var(--press-depth, 4px);
+  font-family: var(--font-display);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: transform .12s cubic-bezier(.3,1.2,.5,1), box-shadow .12s ease, background .12s ease;
+  user-select: none;
+}
+.sg-btn:focus-visible { box-shadow: var(--focus-ring); }
+.sg-btn--sm { height: 36px; padding: 0 14px; font-size: 14px; border-radius: var(--radius-sm); }
+.sg-btn--md { height: 44px; padding: 0 18px; font-size: 15px; }
+.sg-btn--lg { height: 54px; padding: 0 24px; font-size: 17px; }
+.sg-btn--full { width: 100%; }
+.sg-btn__icon { display: inline-flex; }
+.sg-btn__icon svg { width: 1.15em; height: 1.15em; display: block; }
+
+.sg-btn--primary { background: var(--brand); color: var(--text-on-brand); box-shadow: 0 var(--_depth) 0 var(--brand-shadow), var(--shadow-sm); }
+.sg-btn--primary:hover { background: var(--brand-hover); }
+.sg-btn--primary:active { transform: translateY(var(--_depth)); box-shadow: 0 0 0 var(--brand-shadow); }
+
+.sg-btn--reward { background: var(--xp); color: #4a2d00; box-shadow: 0 var(--_depth) 0 var(--xp-shadow), var(--shadow-sm); }
+.sg-btn--reward:hover { background: var(--gold-400); }
+.sg-btn--reward:active { transform: translateY(var(--_depth)); box-shadow: 0 0 0 var(--xp-shadow); }
+
+.sg-btn--danger { background: var(--danger-500); color: #fff; box-shadow: 0 var(--_depth) 0 #9c160f, var(--shadow-sm); }
+.sg-btn--danger:active { transform: translateY(var(--_depth)); box-shadow: 0 0 0 #9c160f; }
+
+.sg-btn--secondary { background: var(--surface-card); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--border-default), var(--shadow-sm); }
+.sg-btn--secondary:hover { background: var(--surface-sunken); }
+.sg-btn--secondary:active { transform: translateY(1px); }
+
+.sg-btn--ghost { background: transparent; color: var(--text-brand); }
+.sg-btn--ghost:hover { background: var(--brand-subtle); }
+
+.sg-btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; transform: none; pointer-events: none; }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-btn-css')) {
+  const s = document.createElement('style'); s.id = 'sg-btn-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function Button({
+  children,
+  variant = 'primary',
+  size = 'md',
+  fullWidth = false,
+  leadingIcon,
+  trailingIcon,
+  as = 'button',
+  className = '',
+  ...rest
+}) {
+  const Tag = as;
+  const cls = [
+    'sg-btn',
+    `sg-btn--${variant}`,
+    `sg-btn--${size}`,
+    fullWidth ? 'sg-btn--full' : '',
+    className,
+  ].filter(Boolean).join(' ');
+
+  return (
+    <Tag className={cls} {...rest}>
+      {leadingIcon && <span className="sg-btn__icon">{leadingIcon}</span>}
+      {children}
+      {trailingIcon && <span className="sg-btn__icon">{trailingIcon}</span>}
+    </Tag>
+  );
+}

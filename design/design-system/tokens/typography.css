@@ -1,0 +1,40 @@
+/* ŠotoGO — Typography tokens
+ * Fredoka (display) · DM Sans (body/UI) · JetBrains Mono (codes, evidenční čísla, stats) */
+
+:root {
+  /* Families */
+  --font-display: 'Fredoka', 'DM Sans', system-ui, sans-serif;
+  --font-body:    'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace;
+
+  /* Weights */
+  --fw-regular:  400;  /* @kind font */
+  --fw-medium:   500;  /* @kind font */
+  --fw-semibold: 600;  /* @kind font */
+  --fw-bold:     700;  /* @kind font */
+
+  /* Type scale (1rem = 16px) */
+  --text-2xs: 0.6875rem;  /* 11 — micro labels, line badges */
+  --text-xs:  0.75rem;    /* 12 — meta, captions */
+  --text-sm:  0.875rem;   /* 14 — secondary UI */
+  --text-base:1rem;       /* 16 — body */
+  --text-lg:  1.125rem;   /* 18 — lead */
+  --text-xl:  1.375rem;   /* 22 — card titles */
+  --text-2xl: 1.75rem;    /* 28 — screen titles */
+  --text-3xl: 2.25rem;    /* 36 — section heroes */
+  --text-4xl: 3rem;       /* 48 — big counters / XP */
+  --text-5xl: 4rem;       /* 64 — splash numbers */
+
+  /* Line heights */
+  --leading-tight:   1.1;
+  --leading-snug:    1.25;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.65;
+
+  /* Letter spacing */
+  --tracking-tighter: -0.02em;
+  --tracking-tight:   -0.01em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;
+  --tracking-wider:   0.08em;  /* eyebrows / uppercase labels */
+}

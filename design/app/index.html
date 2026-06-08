@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ŠotoGO — aplikace</title>
+<link rel="stylesheet" href="../design-system/styles.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="../design-system/_ds_bundle.js"></script>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background: var(--surface-sunken); display:flex; align-items:center; justify-content:center; min-height:100vh; font-family: var(--font-body); padding:20px 0; }
+
+  .sg-phone {
+    position: relative; width: 390px; height: 844px; flex:none;
+    background: #000; border-radius: 52px; padding: 11px;
+    box-shadow: 0 50px 100px rgba(20,26,33,.34), 0 0 0 2px #1a1f25;
+  }
+  .sg-phone__notch { position:absolute; top:11px; left:50%; transform:translateX(-50%); width:128px; height:30px; background:#000; border-radius:0 0 18px 18px; z-index:10; }
+  .sg-screen { position: relative; width: 100%; height: 100%; border-radius: 42px; overflow: hidden; }
+
+  /* Map HUD glass panels */
+  .sg-hud { background: rgba(15,24,34,.82); backdrop-filter: blur(10px); border-radius: var(--radius-lg); padding: 11px 13px; box-shadow: var(--shadow-md); }
+  .sg-locate { position:absolute; right:14px; bottom:118px; width:46px; height:46px; border-radius:50%; border:none; background:var(--surface-card); color:var(--text-primary); box-shadow:var(--shadow-lg); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .sg-locate:active { transform: scale(.94); }
+
+  /* Leaflet marker styles */
+  .sg-player-dot { width:18px; height:18px; border-radius:50%; background:var(--brand); border:3px solid #fff; box-shadow:0 0 0 6px color-mix(in srgb, var(--brand) 30%, transparent), var(--shadow-md); animation: sgpulse 2s ease-out infinite; }
+  .sg-stop-pin { position:relative; width:34px; height:42px; filter: drop-shadow(0 3px 4px rgba(20,26,33,.3)); }
+  .sg-stop-pin__head { position:absolute; top:0; left:0; width:34px; height:34px; border-radius:50% 50% 50% 0; transform: rotate(-45deg); background: var(--pin); display:flex; align-items:center; justify-content:center; color:#fff; font-family:var(--font-display); font-weight:700; font-size:15px; }
+  .sg-stop-pin__head > span { transform: rotate(45deg); }
+
+  @keyframes sgpulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent); } 70% { box-shadow:0 0 0 16px color-mix(in srgb, var(--brand) 0%, transparent); } 100% { box-shadow:0 0 0 0 transparent; } }
+  @keyframes sgscan { 0%,100% { top:6px; } 50% { top:138px; } }
+  .sg-reward-pop { animation: sgpop .5s cubic-bezier(.2,1.3,.4,1) both; }
+  @keyframes sgpop { 0% { transform: scale(.4); opacity:0; } 100% { transform: scale(1); opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { .sg-player-dot, .sg-reward-pop { animation: none; } }
+
+  .leaflet-container { font-family: var(--font-body); background:#e9eef2; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+/* ŠotoGO app — fake data for the UI kit click-through */
+(function () {
+  const CATS = {
+    tram:    { key:'tram',    label:'Tramvaj',   plural:'Tramvaje',   color:'var(--cat-tram)',    soft:'var(--cat-tram-soft)',    icon:'tram-front' },
+    bus:     { key:'bus',     label:'Autobus',   plural:'Autobusy',   color:'var(--cat-bus)',     soft:'var(--cat-bus-soft)',     icon:'bus' },
+    metro:   { key:'metro',   label:'Metro',     plural:'Metro',      color:'var(--cat-metro)',   soft:'var(--cat-metro-soft)',   icon:'train-front-tunnel' },
+    trolley: { key:'trolley', label:'Trolejbus', plural:'Trolejbusy', color:'var(--cat-trolley)', soft:'var(--cat-trolley-soft)', icon:'bus-front' },
+    train:   { key:'train',   label:'Vlak',      plural:'Vlaky',      color:'var(--cat-train)',   soft:'var(--cat-train-soft)',   icon:'train-front' },
+  };
+
+  const VEHICLES = [
+    { cat:'tram',  type:'15T',       number:'9325', operator:'DPP', rarity:'rare',      found:'14. 5. 2026', isNew:true },
+    { cat:'tram',  type:'14T',       number:'9112', operator:'DPP', rarity:'common',    found:'12. 5. 2026' },
+    { cat:'tram',  type:'T3R.PV',    number:'8451', operator:'DPP', rarity:'epic',      found:'9. 5. 2026' },
+    { cat:'tram',  type:'KT8D5',     number:'9048', operator:'DPP', rarity:'rare',      found:'7. 5. 2026' },
+    { cat:'bus',   type:'SOR NS 12', number:'3417', operator:'DPP', rarity:'common',    found:'2. 5. 2026' },
+    { cat:'bus',   type:'Citybus',   number:'3290', operator:'DPP', rarity:'common',    found:'1. 5. 2026' },
+    { cat:'metro', type:'81-71M',    number:'2042', operator:'Metro', rarity:'epic',    found:'28. 4. 2026' },
+    { cat:'metro', type:'M1',        number:'4108', operator:'Metro', rarity:'rare',    found:'26. 4. 2026' },
+    { cat:'train', type:'471 CityElefant', number:'042', operator:'ČD', rarity:'legendary', found:'20. 4. 2026' },
+    { cat:'trolley', type:'Škoda 24Tr', number:'2007', operator:'DPO', rarity:'epic',  found:'18. 4. 2026' },
+  ];
+
+  const LOCKED_COUNT = { tram: 6, bus: 9, metro: 3, trolley: 4, train: 7 };
+
+  const STOPS = [
+    { name:'Florenc',            lines:['B','C'], lat:50.0897, lng:14.4400, xp:30, visited:true,  dist:'40 m' },
+    { name:'Náměstí Republiky',  lines:['B'],     lat:50.0884, lng:14.4280, xp:25, visited:false, dist:'320 m' },
+    { name:'Můstek',             lines:['A','B'], lat:50.0843, lng:14.4214, xp:25, visited:true,  dist:'650 m' },
+    { name:'Hlavní nádraží',     lines:['C'],     lat:50.0832, lng:14.4355, xp:35, visited:false, dist:'480 m' },
+    { name:'Náměstí Míru',       lines:['A'],     lat:50.0758, lng:14.4378, xp:25, visited:false, dist:'1.2 km' },
+  ];
+
+  const CHALLENGES = [
+    { title:'Navštiv zastávku Florenc', cat:'metro', icon:'map-pin', value:1, max:1, reward:80, done:true },
+    { title:'Najdi tramvaj 15T',        cat:'tram',  icon:'tram-front', value:1, max:1, reward:100, done:true },
+    { title:'Navštiv 5 nových zastávek', cat:null,    icon:'route', value:3, max:5, reward:150, done:false },
+    { title:'Najdi autobus SOR',        cat:'bus',   icon:'bus',  value:0, max:1, reward:100, done:false },
+  ];
+
+  const ACHIEVEMENTS = [
+    { title:'Lovec tramvají', desc:'Najdi 50 tramvají',  icon:'tram-front',        tier:'epic',      unlocked:true },
+    { title:'Metro expert',   desc:'Všechny soupravy',   icon:'train-front-tunnel', tier:'rare',      unlocked:true },
+    { title:'První objev',    desc:'Vyfoť 1. vozidlo',   icon:'sparkles',          tier:'common',    unlocked:true },
+    { title:'Stálý cestující', desc:'7denní série',      icon:'flame',             tier:'rare',      unlocked:true },
+    { title:'Sběratel',       desc:'Najdi 100 vozidel',  icon:'layers',            tier:'epic',      value:74,  max:100 },
+    { title:'Šotouš roku',    desc:'Navštiv 500 zastávek', icon:'crown',           tier:'legendary', value:128, max:500 },
+  ];
+
+  const PLAYER = {
+    name:'Petr Novák', handle:'@sotous_petr', level:12,
+    xp:2480, xpMax:3000, xpTotal:18420,
+    vehicles:74, stops:128, streak:7,
+  };
+
+  window.SG_DATA = { CATS, VEHICLES, LOCKED_COUNT, STOPS, CHALLENGES, ACHIEVEMENTS, PLAYER };
+})();
+
+</script>
+  <script type="text/babel">
+/* global React */
+const { Avatar: SGAvatar, Badge: SGBadge } = window.OtoGODesignSystem_f7ff63;
+
+function TopBar({ title, subtitle }) {
+  const P = window.SG_DATA.PLAYER;
+  return (
+    <header style={{
+      display:'flex', alignItems:'center', gap:12, padding:'12px 16px',
+      background:'var(--surface-card)', borderBottom:'1px solid var(--border-subtle)',
+      position:'sticky', top:0, zIndex:5,
+    }}>
+      <SGAvatar name={P.name} size={38} level={P.level} />
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:18, lineHeight:1.1, color:'var(--text-primary)' }}>{title}</div>
+        {subtitle && <div style={{ fontSize:12, color:'var(--text-muted)' }}>{subtitle}</div>}
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontFamily:'var(--font-display)', fontWeight:700, fontSize:13, color:'var(--gold-700)', background:'var(--xp-subtle)', padding:'5px 10px', borderRadius:'var(--radius-pill)' }}>
+          <i data-lucide="flame" style={{ width:15, height:15 }}></i>{P.streak}
+        </span>
+        <SGBadge tone="gold" variant="solid" mono>{P.xpTotal.toLocaleString('cs-CZ')} XP</SGBadge>
+      </div>
+    </header>
+  );
+}
+
+window.TopBar = TopBar;
+
+</script>
+  <script type="text/babel">
+/* global React */
+const { Button: SGButton } = window.OtoGODesignSystem_f7ff63;
+
+/* CaptureSheet — the camera quick-add flow: aim → scanning → "Nový objev!" reward. */
+function CaptureSheet({ onClose, onCatch }) {
+  const [phase, setPhase] = React.useState('aim'); // aim | scan | reward
+  const cat = window.SG_DATA.CATS.tram;
+  const vehicle = { type:'15T', number:'9325', operator:'DPP', cat:'tram' };
+
+  React.useEffect(() => { lucide.createIcons(); });
+
+  React.useEffect(() => {
+    if (phase === 'scan') {
+      const t = setTimeout(() => setPhase('reward'), 1700);
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
+
+  return (
+    <div style={{ position:'absolute', inset:0, zIndex:40, display:'flex', flexDirection:'column',
+      background: phase==='reward' ? 'var(--surface-night)' : '#0B0F14' }}>
+      {/* top bar */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', color:'#fff' }}>
+        <span style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:15 }}>
+          {phase==='reward' ? 'Nový objev!' : 'Vyfoť vozidlo'}
+        </span>
+        <button onClick={onClose} style={{ background:'rgba(255,255,255,.14)', border:'none', color:'#fff', width:34, height:34, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+          <i data-lucide="x" style={{ width:18, height:18 }}></i>
+        </button>
+      </div>
+
+      {phase !== 'reward' && (
+        <>
+          <div style={{ flex:1, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+            {/* faux viewfinder */}
+            <div style={{ position:'absolute', inset:0, background:'radial-gradient(circle at 50% 42%, #2a3340, #0b0f14 75%)' }}></div>
+            <i data-lucide={cat.icon} style={{ width:130, height:130, color:'rgba(255,255,255,.18)', position:'relative' }}></i>
+            {/* reticle */}
+            <div style={{ position:'absolute', width:230, height:150, border:'3px solid rgba(255,255,255,.5)', borderRadius:18, boxShadow:'0 0 0 9999px rgba(0,0,0,.35)' }}>
+              {['nw','ne','sw','se'].map((c) => (
+                <span key={c} style={{
+                  position:'absolute', width:22, height:22,
+                  borderTop: c[0]==='n' ? '4px solid var(--brand)' : 'none',
+                  borderBottom: c[0]==='s' ? '4px solid var(--brand)' : 'none',
+                  borderLeft: c[1]==='w' ? '4px solid var(--brand)' : 'none',
+                  borderRight: c[1]==='e' ? '4px solid var(--brand)' : 'none',
+                  [c[0]==='n'?'top':'bottom']:-3, [c[1]==='w'?'left':'right']:-3, borderRadius:6,
+                }}></span>
+              ))}
+              {phase==='scan' && (
+                <div style={{ position:'absolute', left:0, right:0, height:3, background:'var(--brand)', boxShadow:'0 0 12px var(--brand)', animation:'sgscan 1.5s ease-in-out infinite' }}></div>
+              )}
+            </div>
+            {phase==='scan' && (
+              <div style={{ position:'absolute', bottom:24, color:'#fff', fontFamily:'var(--font-mono)', fontSize:13, display:'flex', alignItems:'center', gap:8 }}>
+                <i data-lucide="scan-line" style={{ width:16, height:16 }}></i> Čtu evidenční číslo…
+              </div>
+            )}
+          </div>
+          <div style={{ padding:'18px 20px 26px' }}>
+            <SGButton variant="primary" size="lg" fullWidth leadingIcon={<i data-lucide="camera"></i>}
+              onClick={() => setPhase('scan')} disabled={phase==='scan'}>
+              {phase==='scan' ? 'Skenuji…' : 'Vyfotit'}
+            </SGButton>
+          </div>
+        </>
+      )}
+
+      {phase === 'reward' && (
+        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'0 24px 30px', textAlign:'center' }}>
+          <div className="sg-reward-pop" style={{ width:118, height:118, borderRadius:'50%', background:'color-mix(in srgb, var(--cat-tram) 22%, transparent)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:22, boxShadow:'0 0 0 8px color-mix(in srgb, var(--cat-tram) 12%, transparent)' }}>
+            <div style={{ width:84, height:84, borderRadius:'50%', background:'var(--cat-tram)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff' }}>
+              <i data-lucide={cat.icon} style={{ width:44, height:44 }}></i>
+            </div>
+          </div>
+          <div className="eyebrow" style={{ color:'var(--gold-300)', marginBottom:8 }}>Nový objev!</div>
+          <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:30, color:'#fff', letterSpacing:'-.01em' }}>{vehicle.type} #{vehicle.number}</div>
+          <div style={{ color:'var(--text-on-night-muted)', marginTop:4, marginBottom:18 }}>Tramvaj · {vehicle.operator}</div>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, fontFamily:'var(--font-display)', fontWeight:700, fontSize:20, color:'#4a2d00', background:'var(--xp)', padding:'8px 18px', borderRadius:'var(--radius-pill)', marginBottom:30 }}>
+            <i data-lucide="zap" style={{ width:20, height:20 }}></i> +100 XP
+          </div>
+          <SGButton variant="reward" size="lg" fullWidth leadingIcon={<i data-lucide="plus"></i>}
+            onClick={() => { onCatch && onCatch(); onClose(); }}>
+            Přidat do parku
+          </SGButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.CaptureSheet = CaptureSheet;
+
+</script>
+  <script type="text/babel">
+/* global React, L */
+const { Badge: SGMapBadge } = window.OtoGODesignSystem_f7ff63;
+
+const LINE_COLOR = { A:'var(--line-a)', B:'var(--line-b)', C:'var(--line-c)' };
+const LINE_HEX = { A:'#00A562', B:'#F7A600', C:'#D9282F' };
+
+function MapScreen() {
+  const D = window.SG_DATA;
+  const mapEl = React.useRef(null);
+  const [sheet, setSheet] = React.useState(D.STOPS[0]);
+
+  React.useEffect(() => {
+    const map = L.map(mapEl.current, { zoomControl:false, attributionControl:false })
+      .setView([50.0865, 14.4330], 15);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    // player location — pulsing green dot
+    const player = L.divIcon({
+      className:'', iconSize:[26,26], iconAnchor:[13,13],
+      html:`<div class="sg-player-dot"></div>`,
+    });
+    L.marker([50.0890, 14.4395], { icon: player, zIndexOffset: 1000 }).addTo(map);
+
+    // stop markers
+    D.STOPS.forEach((s) => {
+      const c = LINE_HEX[s.lines[0]] || '#43B02A';
+      const icon = L.divIcon({
+        className:'', iconSize:[34,42], iconAnchor:[17,42],
+        html:`<div class="sg-stop-pin" style="--pin:${c}">
+                <div class="sg-stop-pin__head"><span>${s.lines[0]}</span></div>
+              </div>`,
+      });
+      L.marker([s.lat, s.lng], { icon }).addTo(map).on('click', () => setSheet(s));
+    });
+
+    setTimeout(() => map.invalidateSize(), 60);
+    return () => map.remove();
+  }, []);
+
+  return (
+    <div style={{ position:'absolute', inset:0 }}>
+      <div ref={mapEl} style={{ position:'absolute', inset:0, background:'#e9eef2', zIndex:0, isolation:'isolate' }}></div>
+
+      {/* TOP floating HUD */}
+      <div style={{ position:'absolute', top:12, left:12, right:12, zIndex:5, display:'flex', flexDirection:'column', gap:10, pointerEvents:'none' }}>
+        <div className="sg-hud" style={{ display:'flex', alignItems:'center', gap:10, pointerEvents:'auto' }}>
+          <div style={{ width:34, height:34, borderRadius:'50%', background:'var(--xp)', color:'#4a2d00', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--font-display)', fontWeight:700, fontSize:14, flex:'none' }}>12</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-on-night-muted)', marginBottom:3 }}>
+              <span>LEVEL 12</span><span>2480 / 3000 XP</span>
+            </div>
+            <div style={{ height:6, background:'rgba(255,255,255,.16)', borderRadius:'999px', overflow:'hidden' }}>
+              <div style={{ width:'82%', height:'100%', background:'var(--xp)', borderRadius:'999px' }}></div>
+            </div>
+          </div>
+        </div>
+        <div className="sg-hud" style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 14px', pointerEvents:'auto' }}>
+          <i data-lucide="search" style={{ width:18, height:18, color:'var(--text-on-night-muted)' }}></i>
+          <span style={{ color:'var(--text-on-night-muted)', fontSize:14 }}>Hledat zastávku nebo linku…</span>
+        </div>
+      </div>
+
+      {/* locate FAB */}
+      <button className="sg-locate" style={{ zIndex:5 }} aria-label="Moje poloha">
+        <i data-lucide="locate-fixed" style={{ width:22, height:22 }}></i>
+      </button>
+
+      {/* BOTTOM stop sheet */}
+      <div style={{ position:'absolute', left:12, right:12, bottom:14, zIndex:5 }}>
+        <div style={{ background:'var(--surface-card)', borderRadius:'var(--radius-xl)', boxShadow:'var(--shadow-lg)', padding:'14px 16px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:11 }}>
+            <div style={{ display:'flex', gap:4 }}>
+              {sheet.lines.map((l) => (
+                <span key={l} style={{ width:26, height:26, borderRadius:7, background:LINE_COLOR[l], color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--font-display)', fontWeight:700, fontSize:14 }}>{l}</span>
+              ))}
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:16, color:'var(--text-primary)' }}>{sheet.name}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, color:'var(--text-muted)' }}>
+                <i data-lucide="navigation" style={{ width:12, height:12 }}></i>{sheet.dist} odsud
+              </div>
+            </div>
+            {sheet.visited
+              ? <SGMapBadge tone="success" variant="soft" icon={<i data-lucide="check"></i>}>Navštíveno</SGMapBadge>
+              : <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontFamily:'var(--font-display)', fontWeight:700, fontSize:13, color:'var(--gold-700)', background:'var(--xp-subtle)', padding:'6px 11px', borderRadius:'999px' }}><i data-lucide="zap" style={{ width:14, height:14 }}></i>+{sheet.xp} XP</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.MapScreen = MapScreen;
+
+</script>
+  <script type="text/babel">
+/* global React */
+const SGP = window.OtoGODesignSystem_f7ff63;
+
+function VehicleDetail({ v, onClose }) {
+  const cat = window.SG_DATA.CATS[v.cat];
+  React.useEffect(() => { lucide.createIcons(); });
+  return (
+    <div style={{ position:'absolute', inset:0, zIndex:30, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(11,15,20,.45)' }}></div>
+      <div style={{ position:'relative', background:'var(--surface-card)', borderRadius:'var(--radius-xl) var(--radius-xl) 0 0', padding:'10px 18px 24px', boxShadow:'var(--shadow-xl)' }}>
+        <div style={{ width:40, height:5, borderRadius:999, background:'var(--border-strong)', margin:'0 auto 16px' }}></div>
+        <div style={{ aspectRatio:'16/10', borderRadius:'var(--radius-lg)', background:`color-mix(in srgb, ${cat.color} 10%, white)`, boxShadow:`inset 0 0 0 2px ${cat.color}`, display:'flex', alignItems:'center', justifyContent:'center', color:cat.color, marginBottom:16 }}>
+          <i data-lucide={cat.icon} style={{ width:84, height:84 }}></i>
+        </div>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
+          <div>
+            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:24, letterSpacing:'-.01em' }}>{v.type} #{v.number}</div>
+            <div style={{ color:'var(--text-muted)', marginTop:2 }}>{cat.label} · {v.operator}</div>
+          </div>
+          <SGP.Badge color={cat.color} variant="solid" icon={<i data-lucide={cat.icon}></i>}>{cat.label}</SGP.Badge>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:16 }}>
+          <SGP.StatTile value={v.rarity==='legendary'?'★★★★':v.rarity==='epic'?'★★★':v.rarity==='rare'?'★★':'★'} label="Vzácnost" color={`var(--rarity-${v.rarity})`} icon={<i data-lucide="star"></i>} />
+          <SGP.StatTile value={v.found} label="Nalezeno" color="var(--brand)" icon={<i data-lucide="calendar-check"></i>} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ParkScreen() {
+  const D = window.SG_DATA;
+  const [filter, setFilter] = React.useState('all');
+  const [view, setView] = React.useState('mrizka');
+  const [detail, setDetail] = React.useState(null);
+
+  React.useEffect(() => { lucide.createIcons(); });
+
+  const cats = Object.values(D.CATS);
+  const counts = {};
+  cats.forEach(c => counts[c.key] = D.VEHICLES.filter(v => v.cat === c.key).length);
+  const list = D.VEHICLES.filter(v => filter === 'all' || v.cat === filter);
+  const locked = filter === 'all' ? 4 : (D.LOCKED_COUNT[filter] || 0);
+  const totalFound = D.VEHICLES.length, totalAll = totalFound + Object.values(D.LOCKED_COUNT).reduce((a,b)=>a+b,0);
+
+  return (
+    <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column' }}>
+      <window.TopBar title="Vozový park" subtitle={`${totalFound} z ${totalAll} vozidel`} />
+      <div style={{ flex:1, overflowY:'auto', padding:'14px 16px 90px' }}>
+        {/* completion */}
+        <div style={{ background:'var(--surface-card)', borderRadius:'var(--radius-lg)', boxShadow:'inset 0 0 0 1px var(--border-subtle)', padding:14, marginBottom:14 }}>
+          <SGP.ProgressBar value={totalFound} max={totalAll} color="var(--brand)" label="Dokončení sbírky"
+            showValue valueText={`${Math.round(totalFound/totalAll*100)} %`} />
+        </div>
+
+        {/* category filters */}
+        <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:10, margin:'0 -16px', padding:'0 16px 10px' }}>
+          <SGP.Tag selected={filter==='all'} color="var(--brand)" icon={<i data-lucide="layout-grid"></i>} count={totalFound} onClick={()=>setFilter('all')}>Vše</SGP.Tag>
+          {cats.map(c => (
+            <SGP.Tag key={c.key} selected={filter===c.key} color={c.color} icon={<i data-lucide={c.icon}></i>} count={counts[c.key]} onClick={()=>setFilter(c.key)}>{c.plural}</SGP.Tag>
+          ))}
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', margin:'4px 0 12px' }}>
+          <span className="eyebrow">{filter==='all' ? 'Všechna vozidla' : D.CATS[filter].plural}</span>
+          <SGP.SegmentedControl value={view} onChange={setView} options={[
+            { value:'mrizka', icon:<i data-lucide="layout-grid"></i> },
+            { value:'seznam', icon:<i data-lucide="list"></i> },
+          ]} />
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns: view==='mrizka' ? '1fr 1fr' : '1fr', gap:12 }}>
+          {list.map((v) => {
+            const c = D.CATS[v.cat];
+            return (
+              <SGP.VehicleCard key={v.type+v.number} type={v.type} number={v.number} operator={v.operator}
+                category={c.label} categoryColor={c.color} categoryIcon={<i data-lucide={c.icon}></i>}
+                rarity={v.rarity} found={v.found} isNew={v.isNew} onClick={()=>setDetail(v)} />
+            );
+          })}
+          {Array.from({ length: locked }).map((_, i) => (
+            <SGP.VehicleCard key={'lock'+i} locked categoryColor={filter==='all' ? 'var(--cat-train)' : D.CATS[filter].color} />
+          ))}
+        </div>
+      </div>
+
+      {detail && <VehicleDetail v={detail} onClose={()=>setDetail(null)} />}
+    </div>
+  );
+}
+
+window.ParkScreen = ParkScreen;
+
+</script>
+  <script type="text/babel">
+/* global React */
+const SGV = window.OtoGODesignSystem_f7ff63;
+
+function VyzvyScreen() {
+  const D = window.SG_DATA;
+  React.useEffect(() => { lucide.createIcons(); });
+
+  const doneCount = D.CHALLENGES.filter(c => c.done).length;
+  const unlocked = D.ACHIEVEMENTS.filter(a => a.unlocked).length;
+
+  return (
+    <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column' }}>
+      <window.TopBar title="Výzvy" subtitle={`${doneCount}/${D.CHALLENGES.length} denních splněno`} />
+      <div style={{ flex:1, overflowY:'auto', padding:'14px 16px 90px' }}>
+
+        {/* daily banner */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, background:'var(--surface-night)', color:'var(--text-on-night)', borderRadius:'var(--radius-lg)', padding:'14px 16px', marginBottom:18 }}>
+          <div style={{ width:42, height:42, borderRadius:'var(--radius-md)', background:'rgba(245,163,0,.18)', color:'var(--gold-300)', display:'flex', alignItems:'center', justifyContent:'center', flex:'none' }}>
+            <i data-lucide="calendar-clock" style={{ width:22, height:22 }}></i>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:15 }}>Denní výzvy</div>
+            <div style={{ fontSize:12, color:'var(--text-on-night-muted)' }}>Obnoví se za 6 h 12 min</div>
+          </div>
+          <div style={{ textAlign:'right' }}>
+            <div style={{ fontFamily:'var(--font-display)', fontWeight:700, fontSize:20, color:'var(--gold-300)' }}>+430</div>
+            <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-on-night-muted)' }}>XP k získání</div>
+          </div>
+        </div>
+
+        <span className="eyebrow" style={{ display:'block', marginBottom:10 }}>Dnešní úkoly</span>
+        <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:24 }}>
+          {D.CHALLENGES.map((c, i) => (
+            <SGV.ChallengeCard key={i} title={c.title} icon={<i data-lucide={c.icon}></i>}
+              color={c.cat ? D.CATS[c.cat].color : 'var(--brand)'} value={c.value} max={c.max} reward={c.reward} done={c.done} />
+          ))}
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:14 }}>
+          <span className="eyebrow">Achievementy</span>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, color:'var(--text-muted)' }}>{unlocked}/{D.ACHIEVEMENTS.length}</span>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'18px 8px', background:'var(--surface-card)', borderRadius:'var(--radius-lg)', boxShadow:'inset 0 0 0 1px var(--border-subtle)', padding:'20px 12px' }}>
+          {D.ACHIEVEMENTS.map((a, i) => (
+            <SGV.AchievementBadge key={i} title={a.title} description={a.desc} icon={<i data-lucide={a.icon}></i>}
+              tier={a.tier} unlocked={a.unlocked} value={a.value} max={a.max} size={64} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.VyzvyScreen = VyzvyScreen;
+
+</script>
+  <script type="text/babel">
+/* global React */
+const SGPr = window.OtoGODesignSystem_f7ff63;
+
+function ProfilScreen() {
+  const D = window.SG_DATA;
+  const P = D.PLAYER;
+  const [push, setPush] = React.useState(true);
+  const [sound, setSound] = React.useState(true);
+  React.useEffect(() => { lucide.createIcons(); });
+
+  const recent = D.VEHICLES.slice(0, 4);
+
+  return (
+    <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column' }}>
+      <window.TopBar title="Profil" />
+      <div style={{ flex:1, overflowY:'auto', padding:'18px 16px 90px' }}>
+
+        {/* hero */}
+        <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:20 }}>
+          <SGPr.LevelRing level={P.level} value={P.xp} max={P.xpMax} size={92} subText={`${P.xp}/${P.xpMax}`} />
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontFamily:'var(--font-display)', fontWeight:700, fontSize:22, lineHeight:1.1 }}>{P.name}</div>
+            <div style={{ color:'var(--text-muted)', fontFamily:'var(--font-mono)', fontSize:13, marginBottom:8 }}>{P.handle}</div>
+            <SGPr.Badge tone="brand" variant="solid" icon={<i data-lucide="award"></i>}>Šotouš · Level {P.level}</SGPr.Badge>
+          </div>
+        </div>
+
+        {/* stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:24 }}>
+          <SGPr.StatTile value={P.vehicles} label="Vozidel" color="var(--cat-tram)" icon={<i data-lucide="tram-front"></i>} />
+          <SGPr.StatTile value={P.stops} label="Zastávek" color="var(--brand)" icon={<i data-lucide="map-pin"></i>} />
+          <SGPr.StatTile value={P.streak} label="dní v sérii" color="var(--xp)" icon={<i data-lucide="flame"></i>} />
+        </div>
+
+        {/* recent catches */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:12 }}>
+          <span className="eyebrow">Poslední úlovky</span>
+          <span style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:13, color:'var(--text-brand)' }}>Vše v parku</span>
+        </div>
+        <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:24 }}>
+          {recent.map((v) => {
+            const c = D.CATS[v.cat];
+            return (
+              <div key={v.type+v.number} style={{ display:'flex', alignItems:'center', gap:12, background:'var(--surface-card)', borderRadius:'var(--radius-md)', boxShadow:'inset 0 0 0 1px var(--border-subtle)', padding:'10px 12px' }}>
+                <div style={{ width:38, height:38, borderRadius:'var(--radius-sm)', background:`color-mix(in srgb, ${c.color} 14%, white)`, color:c.color, display:'flex', alignItems:'center', justifyContent:'center', flex:'none' }}>
+                  <i data-lucide={c.icon} style={{ width:20, height:20 }}></i>
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:15 }}>{v.type} #{v.number}</div>
+                  <div style={{ fontSize:12, color:'var(--text-muted)' }}>{c.label} · {v.operator}</div>
+                </div>
+                <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-muted)' }}>{v.found}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* settings */}
+        <span className="eyebrow" style={{ display:'block', marginBottom:12 }}>Nastavení</span>
+        <div style={{ background:'var(--surface-card)', borderRadius:'var(--radius-lg)', boxShadow:'inset 0 0 0 1px var(--border-subtle)', overflow:'hidden' }}>
+          {[
+            { icon:'bell', label:'Push notifikace', el:<SGPr.Switch checked={push} onChange={e=>setPush(e.target.checked)} /> },
+            { icon:'volume-2', label:'Zvuky a vibrace', el:<SGPr.Switch checked={sound} onChange={e=>setSound(e.target.checked)} /> },
+            { icon:'map', label:'Offline mapa', el:<i data-lucide="chevron-right" style={{ width:18, height:18, color:'var(--text-muted)' }}></i> },
+            { icon:'shield', label:'Soukromí', el:<i data-lucide="chevron-right" style={{ width:18, height:18, color:'var(--text-muted)' }}></i> },
+          ].map((row, i, arr) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 14px', borderBottom: i<arr.length-1 ? '1px solid var(--border-subtle)':'none' }}>
+              <i data-lucide={row.icon} style={{ width:20, height:20, color:'var(--text-secondary)' }}></i>
+              <span style={{ flex:1, fontWeight:500, fontSize:15 }}>{row.label}</span>
+              {row.el}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.ProfilScreen = ProfilScreen;
+
+</script>
+  <script type="text/babel">
+/* global React, ReactDOM */
+const { BottomNav: SGBottomNav } = window.OtoGODesignSystem_f7ff63;
+
+function StatusBar({ dark }) {
+  const color = dark ? '#fff' : 'var(--text-primary)';
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 22px 4px', color, fontFamily:'var(--font-display)', fontWeight:600, fontSize:14, position:'relative', zIndex:6 }}>
+      <span>9:41</span>
+      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+        <i data-lucide="signal" style={{ width:16, height:16 }}></i>
+        <i data-lucide="wifi" style={{ width:16, height:16 }}></i>
+        <i data-lucide="battery-full" style={{ width:20, height:20 }}></i>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = React.useState('mapa');
+  const [capture, setCapture] = React.useState(false);
+
+  React.useEffect(() => { lucide.createIcons(); });
+
+  const onNav = (id) => {
+    if (id === 'kamera') { setCapture(true); return; }
+    setTab(id);
+  };
+
+  const isMap = tab === 'mapa';
+  const Screen = {
+    mapa: window.MapScreen,
+    park: window.ParkScreen,
+    vyzvy: window.VyzvyScreen,
+    profil: window.ProfilScreen,
+  }[tab];
+
+  return (
+    <div className="sg-phone">
+      <div className="sg-phone__notch"></div>
+      <div className="sg-screen" style={{ background: isMap ? '#e9eef2' : 'var(--bg-app)' }}>
+        <StatusBar dark={false} />
+        <div style={{ position:'absolute', top:0, left:0, right:0, bottom:'var(--bottom-nav-h)' }}>
+          <div style={{ position:'absolute', inset:0, top:32 }}>
+            <Screen key={tab} />
+          </div>
+        </div>
+
+        <div style={{ position:'absolute', left:0, right:0, bottom:0 }}>
+          <SGBottomNav value={tab} onChange={onNav} items={[
+            { id:'mapa',  label:'Mapa',  icon:<i data-lucide="map"></i> },
+            { id:'park',  label:'Park',  icon:<i data-lucide="layout-grid"></i> },
+            { id:'kamera', label:'Kamera', icon:<i data-lucide="camera"></i>, fab:true },
+            { id:'vyzvy', label:'Výzvy', icon:<i data-lucide="target"></i>, badge:2 },
+            { id:'profil', label:'Profil', icon:<i data-lucide="user"></i> },
+          ]} />
+        </div>
+
+        {capture && <window.CaptureSheet onClose={()=>setCapture(false)} onCatch={()=>setTab('park')} />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+</script>
+</body>
+</html>

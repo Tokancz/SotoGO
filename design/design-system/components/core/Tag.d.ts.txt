@@ -1,0 +1,16 @@
+import * as React from 'react';
+
+/** Selectable filter chip — the category/segment filters in Vozový park. */
+export interface TagProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /** Selected (filled) state. @default false */
+  selected?: boolean;
+  /** Fill color when selected. @default "var(--brand)" */
+  color?: string;
+  /** Leading icon node. */
+  icon?: React.ReactNode;
+  /** Optional trailing count. */
+  count?: number;
+  children?: React.ReactNode;
+}
+
+export function Tag(props: TagProps): JSX.Element;

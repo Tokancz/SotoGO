@@ -1,0 +1,50 @@
+import React from 'react';
+
+const CSS = `
+.sg-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer; border-radius: var(--radius-md);
+  transition: transform .12s ease, background .12s ease, box-shadow .12s ease;
+  color: var(--text-primary); background: transparent;
+}
+.sg-iconbtn svg { width: 1.3em; height: 1.3em; display: block; }
+.sg-iconbtn--round { border-radius: var(--radius-pill); }
+.sg-iconbtn--sm { width: 36px; height: 36px; font-size: 16px; }
+.sg-iconbtn--md { width: 44px; height: 44px; font-size: 20px; }
+.sg-iconbtn--lg { width: 56px; height: 56px; font-size: 24px; }
+.sg-iconbtn:focus-visible { box-shadow: var(--focus-ring); }
+.sg-iconbtn:active { transform: scale(.92); }
+
+.sg-iconbtn--solid { background: var(--brand); color: #fff; box-shadow: var(--shadow-brand); }
+.sg-iconbtn--solid:hover { background: var(--brand-hover); }
+.sg-iconbtn--soft { background: var(--brand-subtle); color: var(--text-brand); }
+.sg-iconbtn--soft:hover { background: var(--green-100); }
+.sg-iconbtn--ghost:hover { background: var(--surface-sunken); }
+.sg-iconbtn--surface { background: var(--surface-card); color: var(--text-primary); box-shadow: var(--shadow-md); }
+.sg-iconbtn--night { background: rgba(255,255,255,.12); color: #fff; backdrop-filter: blur(8px); }
+.sg-iconbtn--night:hover { background: rgba(255,255,255,.2); }
+.sg-iconbtn[disabled] { opacity: .4; pointer-events: none; }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-iconbtn-css')) {
+  const s = document.createElement('style'); s.id = 'sg-iconbtn-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function IconButton({
+  children,
+  icon,
+  variant = 'ghost',
+  size = 'md',
+  round = false,
+  className = '',
+  ...rest
+}) {
+  const cls = [
+    'sg-iconbtn',
+    `sg-iconbtn--${variant}`,
+    `sg-iconbtn--${size}`,
+    round ? 'sg-iconbtn--round' : '',
+    className,
+  ].filter(Boolean).join(' ');
+  return <button className={cls} {...rest}>{icon || children}</button>;
+}

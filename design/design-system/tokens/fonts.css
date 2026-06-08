@@ -1,0 +1,10 @@
+/* ŠotoGO — Webfonts
+ * SUBSTITUTION NOTE: ŠotoGO has no licensed brand typeface yet. These are
+ * Google Fonts chosen to carry the intended personality:
+ *   - Fredoka      → display / headings / big game numbers (rounded, playful, "collect-em-all" energy)
+ *   - DM Sans      → body / UI text (clean humanist grotesque, full Czech diacritics)
+ *   - JetBrains Mono → evidenční čísla / codes / stats (techy, even numerals)
+ * All three ship Latin Extended (č š ž ř ě ů á í é ó ú ý ň ť ď). Swap for a
+ * licensed face later by replacing this @import + the --font-* tokens.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;700&display=swap');

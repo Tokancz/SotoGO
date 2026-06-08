@@ -1,0 +1,79 @@
+import React from 'react';
+
+const CSS = `
+.sg-quest {
+  display: flex; align-items: center; gap: 13px;
+  background: var(--surface-card); border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 1px var(--border-subtle), var(--shadow-sm);
+  padding: 13px 14px; width: 100%; text-align: left; border: none; font-family: var(--font-body);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+button.sg-quest { cursor: pointer; }
+button.sg-quest:hover { box-shadow: inset 0 0 0 1px var(--border-default), var(--shadow-md); }
+button.sg-quest:active { transform: scale(.99); }
+.sg-quest__icon { width: 44px; height: 44px; flex: none; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--_c, var(--brand)) 14%, white); color: var(--_c, var(--brand)); }
+.sg-quest__icon svg { width: 22px; height: 22px; }
+.sg-quest__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.sg-quest__top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.sg-quest__title { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--text-primary); line-height: 1.2; }
+.sg-quest__reward { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-display); font-weight: 700; font-size: 12px; color: var(--gold-700); background: var(--xp-subtle); padding: 3px 8px; border-radius: var(--radius-pill); flex: none; }
+.sg-quest__reward svg { width: 12px; height: 12px; }
+.sg-quest__progrow { display: flex; align-items: center; gap: 9px; }
+.sg-quest__track { flex: 1; height: 8px; background: var(--surface-sunken); border-radius: var(--radius-pill); overflow: hidden; box-shadow: inset 0 1px 2px rgba(20,26,33,.08); }
+.sg-quest__fill { height: 100%; border-radius: var(--radius-pill); background: var(--_c, var(--brand)); transition: width .6s cubic-bezier(.2,.8,.2,1); }
+.sg-quest__count { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; flex: none; }
+
+.sg-quest--done { box-shadow: inset 0 0 0 1.5px var(--success-soft), var(--shadow-sm); }
+.sg-quest--done .sg-quest__icon { background: var(--success-soft); color: var(--green-600); }
+.sg-quest--done .sg-quest__title { color: var(--text-secondary); }
+.sg-quest__check { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-display); font-weight: 700; font-size: 12px; color: var(--green-600); flex:none; }
+.sg-quest__check svg { width: 14px; height: 14px; }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-quest-css')) {
+  const s = document.createElement('style'); s.id = 'sg-quest-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function ChallengeCard({
+  title,
+  icon,
+  color = 'var(--brand)',
+  value = 0,
+  max = 1,
+  reward,
+  done = false,
+  as = 'div',
+  className = '',
+  ...rest
+}) {
+  const Tag = as;
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  const complete = done || value >= max;
+  return (
+    <Tag
+      className={['sg-quest', complete ? 'sg-quest--done' : '', className].filter(Boolean).join(' ')}
+      style={{ '--_c': color }}
+      {...rest}
+    >
+      <span className="sg-quest__icon">{complete ? <i data-lucide="check"></i> : icon}</span>
+      <span className="sg-quest__body">
+        <span className="sg-quest__top">
+          <span className="sg-quest__title">{title}</span>
+          {reward != null && (
+            <span className="sg-quest__reward"><i data-lucide="zap"></i>+{reward} XP</span>
+          )}
+        </span>
+        <span className="sg-quest__progrow">
+          {complete ? (
+            <span className="sg-quest__check"><i data-lucide="check-circle-2"></i>Splněno</span>
+          ) : (
+            <>
+              <span className="sg-quest__track"><span className="sg-quest__fill" style={{ width: `${pct}%` }} /></span>
+              <span className="sg-quest__count">{value}/{max}</span>
+            </>
+          )}
+        </span>
+      </span>
+    </Tag>
+  );
+}

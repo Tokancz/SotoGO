@@ -1,0 +1,30 @@
+import React from 'react';
+
+/**
+ * ChallengeCard — a daily quest / výzva row: colored icon, title, XP reward,
+ * inline progress bar with count, and a completed "Splněno" state.
+ *
+ * @startingPoint section="Game" subtitle="Daily challenge / quest row" viewport="380x90"
+ */
+export interface ChallengeCardProps {
+  /** Quest text, e.g. "Navštiv 5 nových zastávek". */
+  title: string;
+  /** Lucide <i data-lucide> element shown in the colored chip. */
+  icon?: React.ReactNode;
+  /** Accent color token (often a category color). Default var(--brand). */
+  color?: string;
+  /** Current progress. */
+  value?: number;
+  /** Target to complete. */
+  max?: number;
+  /** XP reward number shown as a gold "+N XP" pill. */
+  reward?: number;
+  /** Force the completed state (also auto-completes when value >= max). */
+  done?: boolean;
+  /** Render element; pass "button" to make the whole row tappable. */
+  as?: 'div' | 'button';
+  className?: string;
+  onClick?: (e: React.MouseEvent) => void;
+}
+
+export function ChallengeCard(props: ChallengeCardProps): JSX.Element;

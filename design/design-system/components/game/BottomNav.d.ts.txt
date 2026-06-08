@@ -1,0 +1,32 @@
+import React from 'react';
+
+/**
+ * BottomNav — Pokémon-GO-style fixed bottom navigation with four tabs and an
+ * elevated center camera FAB. Mount it fixed to the bottom of a mobile frame.
+ *
+ * @startingPoint section="Game" subtitle="Mobile bottom nav with center camera FAB" viewport="420x76"
+ */
+export interface BottomNavProps {
+  /** Tabs in order. Put the camera item in the middle with fab: true. */
+  items: BottomNavItem[];
+  /** Active tab id. */
+  value?: string;
+  /** Fired with an item id on tap (including the FAB). */
+  onChange?: (id: string) => void;
+  className?: string;
+}
+
+export function BottomNav(props: BottomNavProps): JSX.Element;
+
+export interface BottomNavItem {
+  /** Unique id passed to onChange. */
+  id: string;
+  /** Short label under the icon (Mapa, Park, Výzvy, Profil). */
+  label: string;
+  /** Lucide <i data-lucide> element. */
+  icon?: React.ReactNode;
+  /** Red count bubble (e.g. unclaimed challenges). */
+  badge?: number | string;
+  /** Render this item as the elevated center camera FAB instead of a tab. */
+  fab?: boolean;
+}

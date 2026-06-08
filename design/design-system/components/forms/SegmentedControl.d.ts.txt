@@ -1,0 +1,21 @@
+import * as React from 'react';
+
+export interface SegmentOption {
+  value: string;
+  label: React.ReactNode;
+  /** Optional leading icon node. */
+  icon?: React.ReactNode;
+}
+
+/** Pill segmented control — sub-tabs like Denní výzvy / Achievementy / Statistiky. */
+export interface SegmentedControlProps {
+  options: SegmentOption[];
+  /** Selected value. */
+  value?: string;
+  onChange?: (value: string) => void;
+  /** Stretch segments to fill width. @default false */
+  fullWidth?: boolean;
+  className?: string;
+}
+
+export function SegmentedControl(props: SegmentedControlProps): JSX.Element;

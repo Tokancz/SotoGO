@@ -1,0 +1,12 @@
+/* ŠotoGO — Radius tokens
+ * Friendly & rounded — playful game UI, never sharp. */
+
+:root {
+  --radius-xs:   6px;
+  --radius-sm:   10px;
+  --radius-md:   14px;   /* default control radius */
+  --radius-lg:   20px;   /* cards */
+  --radius-xl:   28px;   /* sheets, large panels */
+  --radius-2xl:  36px;   /* hero tiles */
+  --radius-pill: 999px;  /* chips, badges, segmented controls */
+}

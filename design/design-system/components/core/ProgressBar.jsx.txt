@@ -1,0 +1,42 @@
+import React from 'react';
+
+const CSS = `
+.sg-progress { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.sg-progress__head { display: flex; justify-content: space-between; align-items: baseline; }
+.sg-progress__label { font-family: var(--font-display); font-weight: 600; font-size: 13px; color: var(--text-secondary); }
+.sg-progress__value { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.sg-progress__track { width: 100%; background: var(--surface-sunken); border-radius: var(--radius-pill); overflow: hidden; box-shadow: inset 0 1px 2px rgba(20,26,33,.08); }
+.sg-progress__fill { height: 100%; border-radius: var(--radius-pill); transition: width .6s cubic-bezier(.2,.8,.2,1); position: relative; }
+.sg-progress__fill::after { content:''; position:absolute; inset:0 0 auto 0; height:45%; border-radius: inherit; background: linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,0)); }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-progress-css')) {
+  const s = document.createElement('style'); s.id = 'sg-progress-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function ProgressBar({
+  value = 0,
+  max = 100,
+  color = 'var(--brand)',
+  height = 10,
+  label,
+  valueText,
+  showValue = false,
+  className = '',
+  ...rest
+}) {
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  return (
+    <div className={['sg-progress', className].filter(Boolean).join(' ')} {...rest}>
+      {(label || showValue) && (
+        <div className="sg-progress__head">
+          {label && <span className="sg-progress__label">{label}</span>}
+          {showValue && <span className="sg-progress__value">{valueText ?? `${value} / ${max}`}</span>}
+        </div>
+      )}
+      <div className="sg-progress__track" style={{ height }} role="progressbar" aria-valuenow={value} aria-valuemax={max}>
+        <div className="sg-progress__fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}

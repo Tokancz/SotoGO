@@ -1,0 +1,70 @@
+import React from 'react';
+
+const CSS = `
+.sg-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-display); font-weight: 600; line-height: 1;
+  border-radius: var(--radius-pill); white-space: nowrap;
+}
+.sg-badge--sm { font-size: 11px; padding: 4px 8px; }
+.sg-badge--md { font-size: 13px; padding: 6px 11px; }
+.sg-badge__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.sg-badge svg { width: 1.05em; height: 1.05em; }
+.sg-badge--mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+/* token tones */
+.sg-badge--brand.is-solid { background: var(--brand); color: #fff; }
+.sg-badge--brand.is-soft { background: var(--brand-subtle); color: var(--text-brand); }
+.sg-badge--gold.is-solid { background: var(--xp); color: #4a2d00; }
+.sg-badge--gold.is-soft { background: var(--xp-subtle); color: var(--gold-700); }
+.sg-badge--neutral.is-solid { background: var(--slate-700); color: #fff; }
+.sg-badge--neutral.is-soft { background: var(--surface-sunken); color: var(--text-secondary); }
+.sg-badge--success.is-soft { background: var(--success-soft); color: var(--green-700); }
+.sg-badge--warning.is-soft { background: var(--warning-soft); color: var(--gold-700); }
+.sg-badge--danger.is-soft { background: var(--danger-soft); color: var(--danger-500); }
+.sg-badge--danger.is-solid { background: var(--danger-500); color: #fff; }
+.sg-badge--info.is-soft { background: var(--info-soft); color: var(--info-500); }
+.sg-badge--outline { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border-strong); color: var(--text-secondary); }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-badge-css')) {
+  const s = document.createElement('style'); s.id = 'sg-badge-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function Badge({
+  children,
+  tone = 'neutral',
+  variant = 'soft',
+  size = 'md',
+  color,
+  dot = false,
+  icon,
+  mono = false,
+  className = '',
+  ...rest
+}) {
+  // Custom color (category / rarity / metro line) overrides token tones via inline style.
+  let style = {};
+  if (color) {
+    style = variant === 'solid'
+      ? { background: color, color: '#fff' }
+      : variant === 'outline'
+        ? { boxShadow: `inset 0 0 0 1.5px ${color}`, color }
+        : { background: `color-mix(in srgb, ${color} 14%, white)`, color };
+  }
+  const cls = [
+    'sg-badge', `sg-badge--${size}`,
+    color ? '' : `sg-badge--${tone}`,
+    `is-${variant}`,
+    variant === 'outline' ? 'sg-badge--outline' : '',
+    mono ? 'sg-badge--mono' : '',
+    className,
+  ].filter(Boolean).join(' ');
+  return (
+    <span className={cls} style={style} {...rest}>
+      {dot && <span className="sg-badge__dot" />}
+      {icon}
+      {children}
+    </span>
+  );
+}

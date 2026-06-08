@@ -1,0 +1,54 @@
+import React from 'react';
+
+const CSS = `
+.sg-ring { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.sg-ring svg { transform: rotate(-90deg); display: block; }
+.sg-ring__track { fill: none; stroke: var(--surface-sunken); }
+.sg-ring__fill { fill: none; stroke-linecap: round; transition: stroke-dashoffset .7s cubic-bezier(.2,.8,.2,1); }
+.sg-ring__center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.sg-ring__eyebrow { font-family: var(--font-display); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); line-height: 1; }
+.sg-ring__value { font-family: var(--font-display); font-weight: 700; color: var(--text-primary); line-height: 1; font-variant-numeric: tabular-nums; }
+.sg-ring__sub { font-family: var(--font-mono); color: var(--text-muted); font-variant-numeric: tabular-nums; line-height: 1; }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-ring-css')) {
+  const s = document.createElement('style'); s.id = 'sg-ring-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function LevelRing({
+  level,
+  value = 0,
+  max = 100,
+  size = 96,
+  stroke = 9,
+  color = 'var(--xp)',
+  label = 'Level',
+  subText,
+  className = '',
+  ...rest
+}) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(1, value / max));
+  const offset = c * (1 - pct);
+  return (
+    <div className={['sg-ring', className].filter(Boolean).join(' ')} style={{ width: size, height: size }} {...rest}>
+      <svg width={size} height={size}>
+        <circle className="sg-ring__track" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} />
+        <circle
+          className="sg-ring__fill"
+          cx={size / 2} cy={size / 2} r={r}
+          strokeWidth={stroke}
+          stroke={color}
+          strokeDasharray={c}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <div className="sg-ring__center">
+        {label && <span className="sg-ring__eyebrow" style={{ fontSize: size * 0.11 }}>{label}</span>}
+        <span className="sg-ring__value" style={{ fontSize: size * 0.34 }}>{level}</span>
+        {subText && <span className="sg-ring__sub" style={{ fontSize: size * 0.11 }}>{subText}</span>}
+      </div>
+    </div>
+  );
+}

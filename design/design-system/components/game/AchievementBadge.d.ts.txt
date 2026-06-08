@@ -1,0 +1,29 @@
+import React from 'react';
+
+/**
+ * AchievementBadge — a circular medal for an achievement, with rarity-tinted
+ * frame, locked vs unlocked states, and an optional progress count.
+ *
+ * @startingPoint section="Game" subtitle="Achievement / odznak medal" viewport="140x140"
+ */
+export interface AchievementBadgeProps {
+  /** Achievement name, e.g. "Lovec tramvají". */
+  title?: string;
+  /** Short requirement line, e.g. "Najdi 50 tramvají". */
+  description?: string;
+  /** Lucide <i data-lucide> element shown when unlocked. */
+  icon?: React.ReactNode;
+  /** Rarity tier — drives the medal color. Default "legendary". */
+  tier?: 'common' | 'rare' | 'epic' | 'legendary' | string;
+  /** Medal diameter in px. Default 72. */
+  size?: number;
+  /** Whether earned. Locked shows a padlock + desaturated medal. */
+  unlocked?: boolean;
+  /** Current progress (shown as a count bubble when locked). */
+  value?: number;
+  /** Target progress. */
+  max?: number;
+  className?: string;
+}
+
+export function AchievementBadge(props: AchievementBadgeProps): JSX.Element;

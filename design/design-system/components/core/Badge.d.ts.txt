@@ -1,0 +1,22 @@
+import * as React from 'react';
+
+/** Small status / label pill. Use `color` for category, rarity, or metro-line tints. */
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  /** Token tone (ignored when `color` is set). @default "neutral" */
+  tone?: 'brand' | 'gold' | 'neutral' | 'success' | 'warning' | 'danger' | 'info';
+  /** @default "soft" */
+  variant?: 'soft' | 'solid' | 'outline';
+  /** @default "md" */
+  size?: 'sm' | 'md';
+  /** Custom color (e.g. var(--cat-tram)) — drives a category/rarity/line badge. */
+  color?: string;
+  /** Leading status dot. @default false */
+  dot?: boolean;
+  /** Leading icon node. */
+  icon?: React.ReactNode;
+  /** Use the mono/tabular face (e.g. evidenční čísla, +XP). @default false */
+  mono?: boolean;
+  children?: React.ReactNode;
+}
+
+export function Badge(props: BadgeProps): JSX.Element;

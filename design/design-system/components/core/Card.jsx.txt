@@ -1,0 +1,53 @@
+import React from 'react';
+
+const CSS = `
+.sg-card {
+  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: clip;
+  transition: transform .15s cubic-bezier(.3,1,.5,1), box-shadow .15s ease;
+}
+.sg-card--bordered { box-shadow: inset 0 0 0 1px var(--border-subtle), var(--shadow-sm); }
+.sg-card--flat { box-shadow: inset 0 0 0 1px var(--border-default); }
+.sg-card--p0 { padding: 0; }
+.sg-card--p-sm { padding: 14px; }
+.sg-card--p-md { padding: 18px; }
+.sg-card--p-lg { padding: 24px; }
+.sg-card--interactive { cursor: pointer; }
+.sg-card--interactive:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.sg-card--interactive:active { transform: translateY(0); }
+.sg-card--night { background: var(--surface-night); color: var(--text-on-night); box-shadow: var(--shadow-lg); }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-card-css')) {
+  const s = document.createElement('style'); s.id = 'sg-card-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function Card({
+  children,
+  padding = 'md',
+  variant = 'raised',
+  interactive = false,
+  accentColor,
+  as = 'div',
+  className = '',
+  style = {},
+  ...rest
+}) {
+  const Tag = as;
+  const cls = [
+    'sg-card',
+    `sg-card--p-${padding === 'none' ? '0' : padding}`,
+    variant === 'bordered' ? 'sg-card--bordered' : '',
+    variant === 'flat' ? 'sg-card--flat' : '',
+    variant === 'night' ? 'sg-card--night' : '',
+    interactive ? 'sg-card--interactive' : '',
+    className,
+  ].filter(Boolean).join(' ');
+  // Optional colored frame (category / rarity).
+  const frameStyle = accentColor
+    ? { boxShadow: `inset 0 0 0 2px ${accentColor}`, ...style }
+    : style;
+  return <Tag className={cls} style={frameStyle} {...rest}>{children}</Tag>;
+}

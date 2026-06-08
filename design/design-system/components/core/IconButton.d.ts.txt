@@ -1,0 +1,16 @@
+import * as React from 'react';
+
+/** Icon-only button for toolbars, map HUD, and tight controls. */
+export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /** Icon node (Lucide `<i>` / `<svg>`). Alias of children. */
+  icon?: React.ReactNode;
+  /** @default "ghost" */
+  variant?: 'solid' | 'soft' | 'ghost' | 'surface' | 'night';
+  /** @default "md" */
+  size?: 'sm' | 'md' | 'lg';
+  /** Fully circular. @default false */
+  round?: boolean;
+  children?: React.ReactNode;
+}
+
+export function IconButton(props: IconButtonProps): JSX.Element;

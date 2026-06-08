@@ -1,0 +1,45 @@
+import React from 'react';
+
+const CSS = `
+.sg-stat {
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  background: var(--surface-card); border-radius: var(--radius-lg);
+  padding: 16px; box-shadow: inset 0 0 0 1px var(--border-subtle);
+  min-width: 0;
+}
+.sg-stat__top { display: flex; align-items: center; gap: 8px; }
+.sg-stat__icon { width: 30px; height: 30px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex: none; }
+.sg-stat__icon svg { width: 18px; height: 18px; }
+.sg-stat__value { font-family: var(--font-display); font-weight: 700; font-size: 28px; line-height: 1; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.sg-stat__label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.sg-stat--center { align-items: center; text-align: center; }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('sg-stat-css')) {
+  const s = document.createElement('style'); s.id = 'sg-stat-css'; s.textContent = CSS; document.head.appendChild(s);
+}
+
+export function StatTile({
+  value,
+  label,
+  icon,
+  color = 'var(--brand)',
+  center = false,
+  className = '',
+  ...rest
+}) {
+  const cls = ['sg-stat', center ? 'sg-stat--center' : '', className].filter(Boolean).join(' ');
+  return (
+    <div className={cls} {...rest}>
+      <div className="sg-stat__top">
+        {icon && (
+          <span className="sg-stat__icon" style={{ background: `color-mix(in srgb, ${color} 14%, white)`, color }}>
+            {icon}
+          </span>
+        )}
+        <span className="sg-stat__value">{value}</span>
+      </div>
+      {label && <span className="sg-stat__label">{label}</span>}
+    </div>
+  );
+}

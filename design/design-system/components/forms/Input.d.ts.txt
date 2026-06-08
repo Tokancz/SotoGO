@@ -1,0 +1,16 @@
+import * as React from 'react';
+
+/** Text field with label, icons, hint/error. `mono` for codes/registration searches. */
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: React.ReactNode;
+  /** Helper text under the field. */
+  hint?: React.ReactNode;
+  /** Error message (overrides hint, turns the field red). */
+  error?: React.ReactNode;
+  leadingIcon?: React.ReactNode;
+  trailingIcon?: React.ReactNode;
+  /** Use the mono/tabular face for the value. @default false */
+  mono?: boolean;
+}
+
+export function Input(props: InputProps): JSX.Element;

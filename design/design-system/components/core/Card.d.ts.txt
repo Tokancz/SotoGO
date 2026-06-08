@@ -1,0 +1,18 @@
+import * as React from 'react';
+
+/** Generic surface container. `accentColor` adds a 2px category/rarity frame; `night` for HUD over the map. */
+export interface CardProps extends React.HTMLAttributes<HTMLElement> {
+  /** @default "md" */
+  padding?: 'none' | 'sm' | 'md' | 'lg';
+  /** @default "raised" */
+  variant?: 'raised' | 'bordered' | 'flat' | 'night';
+  /** Lift + stronger shadow on hover. @default false */
+  interactive?: boolean;
+  /** Colored 2px inset frame (e.g. var(--cat-tram), var(--rarity-epic)). */
+  accentColor?: string;
+  /** @default "div" */
+  as?: keyof JSX.IntrinsicElements;
+  children?: React.ReactNode;
+}
+
+export function Card(props: CardProps): JSX.Element;
