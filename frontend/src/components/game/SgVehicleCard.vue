@@ -23,6 +23,7 @@ const props = withDefaults(
     found?: string
     isNew?: boolean
     locked?: boolean
+    compact?: boolean
   }>(),
   { categoryColor: 'var(--cat-tram)', categoryIcon: 'tram-front' },
 )
@@ -34,8 +35,9 @@ const vars = computed(() => ({
 </script>
 
 <template>
-  <div v-if="locked" class="sg-vcard sg-vcard--locked" :style="vars">
-    <div class="sg-vcard__media">
+  <div v-if="locked" class="sg-vcard sg-vcard--locked" :class="{ 'sg-vcard--compact': compact }" :style="vars">
+    <div v-if="compact" class="sg-vcard__lead"><SgIcon name="lock" /></div>
+    <div v-else class="sg-vcard__media">
       <div class="sg-vcard__lockwrap"><SgIcon name="lock" /></div>
     </div>
     <div class="sg-vcard__body">
@@ -44,8 +46,12 @@ const vars = computed(() => ({
     </div>
   </div>
 
-  <button v-else type="button" class="sg-vcard" :style="vars">
-    <div class="sg-vcard__media">
+  <button v-else type="button" class="sg-vcard" :class="{ 'sg-vcard--compact': compact }" :style="vars">
+    <div v-if="compact" class="sg-vcard__lead">
+      <img v-if="image" :src="image" :alt="`${type} ${number}`" />
+      <SgIcon v-else :name="categoryIcon" />
+    </div>
+    <div v-else class="sg-vcard__media">
       <img v-if="image" :src="image" :alt="`${type} ${number}`" />
       <div v-else class="sg-vcard__media-fallback"><SgIcon :name="categoryIcon" /></div>
       <span class="sg-vcard__catchip"><SgIcon :name="categoryIcon" />{{ category }}</span>
@@ -56,6 +62,11 @@ const vars = computed(() => ({
       <span class="sg-vcard__code">{{ type }}<template v-if="number"> #{{ number }}</template></span>
       <span v-if="operator" class="sg-vcard__operator">{{ operator }}</span>
       <span v-if="found" class="sg-vcard__meta"><SgIcon name="calendar-check" />{{ found }}</span>
+    </div>
+    <div v-if="compact" class="sg-vcard__trail">
+      <span v-if="isNew" class="sg-vcard__newdot" title="Nový objev!" />
+      <span class="sg-vcard__catchip sg-vcard__catchip--inline"><SgIcon :name="categoryIcon" />{{ category }}</span>
+      <span v-if="rarity" class="sg-vcard__rarity sg-vcard__rarity--inline"><SgIcon name="star" /></span>
     </div>
   </button>
 </template>
@@ -79,7 +90,7 @@ const vars = computed(() => ({
   &:hover { transform: translateY(-3px); box-shadow: inset 0 0 0 2px var(--_cat), var(--shadow-lg); }
   &:active { transform: translateY(0); }
 }
-.sg-vcard__media { position: relative; aspect-ratio: 4 / 3; background: var(--surface-sunken); overflow: hidden; }
+.sg-vcard__media { position: relative; aspect-ratio: 4 / 3; background: var(--surface-sunken); overflow: hidden; border-radius: calc(var(--radius-lg) - 2px) calc(var(--radius-lg) - 2px) 0 0; }
 .sg-vcard__media img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sg-vcard__media-fallback {
   width: 100%;
@@ -174,4 +185,46 @@ const vars = computed(() => ({
   svg { width: 30px; height: 30px; }
 }
 .sg-vcard__unknown { font-family: var(--font-mono); font-size: 14px; color: var(--text-muted); }
+
+/* Compact (list) layout — no media block, single horizontal row. */
+.sg-vcard--compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+
+  &:hover { transform: none; box-shadow: inset 0 0 0 2px var(--_cat), var(--shadow-sm); }
+  &.sg-vcard--locked:hover { box-shadow: inset 0 0 0 2px var(--border-default); }
+
+  .sg-vcard__body { padding: 0; flex: 1; min-width: 0; }
+  .sg-vcard__code, .sg-vcard__operator { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+.sg-vcard__lead {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--_cat) 55%, var(--slate-300));
+  background: color-mix(in srgb, var(--_cat) 8%, white);
+  svg { width: 22px; height: 22px; }
+  img { width: 100%; height: 100%; object-fit: cover; }
+}
+.sg-vcard--locked .sg-vcard__lead { color: var(--slate-300); background: var(--surface-sunken); }
+.sg-vcard__trail { flex: none; display: flex; align-items: center; gap: 8px; }
+.sg-vcard__catchip--inline {
+  position: static;
+  box-shadow: none;
+}
+.sg-vcard__rarity--inline { position: static; top: auto; right: auto; }
+.sg-vcard__newdot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--xp);
+  box-shadow: var(--shadow-gold);
+}
 </style>

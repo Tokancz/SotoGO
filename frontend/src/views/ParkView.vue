@@ -106,6 +106,7 @@ const previewStyle = computed(() =>
           :category-icon="game.cats[item.v.category].icon"
           :rarity="item.collected ? item.v.rarity : undefined"
           :is-new="item.collected && item.v.id === newestId"
+          :compact="view === 'seznam'"
           @click="item.collected && (detail = item.v)"
         />
       </div>
@@ -161,9 +162,13 @@ const previewStyle = computed(() =>
 
 .hint { padding: 28px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
 
-.sheet { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: flex-end; background: rgba(11, 15, 20, 0.45); }
+.sheet { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; background: rgba(11, 15, 20, 0.45); }
 .sheet__panel {
   position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   background: var(--surface-card);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   padding: 10px 18px 24px;
@@ -173,11 +178,13 @@ const previewStyle = computed(() =>
 .sheet__handle { width: 40px; height: 5px; border-radius: 999px; background: var(--border-strong); margin: 0 auto 16px; }
 .sheet__preview {
   aspect-ratio: 16 / 10;
+  max-height: 220px;
+  width: 100%;
   border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin: 0 auto 16px;
 }
 .sheet__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .sheet__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 24px; letter-spacing: -0.01em; }
