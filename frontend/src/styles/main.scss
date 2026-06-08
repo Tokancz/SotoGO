@@ -1,0 +1,17 @@
+// ŠotoGO — Global stylesheet entry
+// Imported ONCE in main.ts. Emits the token layer + base reset + global chrome.
+// (Mixins/functions are injected per-SFC via vite additionalData, not here.)
+
+// --- Design tokens (each emits a :root block) ---
+@use 'tokens/fonts';
+@use 'tokens/colors';
+@use 'tokens/typography';
+@use 'tokens/spacing';
+@use 'tokens/radius';
+@use 'tokens/shadows';
+
+// --- Base + global chrome (each partial pulls in abstracts itself) ---
+@use 'base';
+@use 'app-shell';
+@use 'keyframes';
+@use 'map';

@@ -1,0 +1,27 @@
+// ŠotoGO — SCSS functions
+// Helpers that return token references. Emit no CSS on their own.
+@use 'sass:string';
+
+// Vehicle-category color token, e.g. cat-color(tram) -> var(--cat-tram)
+@function cat-color($key) {
+  @return var(--cat-#{$key});
+}
+
+@function cat-soft($key) {
+  @return var(--cat-#{$key}-soft);
+}
+
+// Rarity tier color, e.g. rarity-color(epic) -> var(--rarity-epic)
+@function rarity-color($tier) {
+  @return var(--rarity-#{$tier});
+}
+
+// Metro line color, e.g. line-color(A) -> var(--line-a)
+@function line-color($line) {
+  @return var(--line-#{string.to-lower-case($line)});
+}
+
+// Soft tint of any color (matches the design's color-mix usage).
+@function tint($color, $amount: 14%) {
+  @return color-mix(in srgb, #{$color} #{$amount}, white);
+}

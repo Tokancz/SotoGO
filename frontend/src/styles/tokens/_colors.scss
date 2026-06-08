@@ -1,0 +1,118 @@
+// ŠotoGO — Color tokens
+// Anchor: ŠotoGO Green #43B02A (transit/PID heritage). Gamified, vivid, high-energy.
+// Grass-green brand, gold reward/XP accent, five vehicle-category colors, Prague
+// metro line colors, four collection-rarity tiers, cool slate neutral ramp.
+
+:root {
+  // ---- Brand: ŠotoGO Green ----
+  --green-50:  #EFF9EB;
+  --green-100: #D9F0CF;
+  --green-200: #B6E2A4;
+  --green-300: #8FD276;
+  --green-400: #66C24A;
+  --green-500: #43B02A;  // base brand
+  --green-600: #379021;
+  --green-700: #2C731B;
+  --green-800: #235A16;
+  --green-900: #173E0E;
+
+  // ---- Reward / XP / Level: Gold ----
+  --gold-50:  #FFF7E6;
+  --gold-100: #FFEBBF;
+  --gold-200: #FFD980;
+  --gold-300: #FFC53D;
+  --gold-400: #FBB014;
+  --gold-500: #F5A300;  // base xp/level
+  --gold-600: #D08600;
+  --gold-700: #A86700;
+
+  // ---- Neutral: cool slate ----
+  --white:    #FFFFFF;
+  --slate-50:  #F6F8FA;
+  --slate-100: #EDF1F4;
+  --slate-200: #DEE4EA;
+  --slate-300: #C6CFD8;
+  --slate-400: #98A3AF;
+  --slate-500: #6B7682;
+  --slate-600: #4D5762;
+  --slate-700: #38424C;
+  --slate-800: #232B33;
+  --slate-900: #141A21;
+  --black:     #0B0F14;
+
+  // ---- Vehicle category colors (the Pokédex categories) ----
+  --cat-tram:        #E2231A;  // Tramvaje — Prague tram red
+  --cat-tram-soft:   #FCE3E1;
+  --cat-bus:         #2B6CE5;  // Autobusy
+  --cat-bus-soft:    #E0EAFC;
+  --cat-metro:       #8E44E8;  // Metro
+  --cat-metro-soft:  #EEE3FC;
+  --cat-trolley:     #0E9E8E;  // Trolejbusy
+  --cat-trolley-soft:#DCF3F0;
+  --cat-train:       #E8730C;  // Vlaky
+  --cat-train-soft:  #FCEBDB;
+
+  // ---- Prague metro line colors ----
+  --line-a: #00A562;  // zelená
+  --line-b: #F7A600;  // žlutá
+  --line-c: #D9282F;  // červená
+
+  // ---- Collection rarity tiers ----
+  --rarity-common:    #98A3AF;
+  --rarity-rare:      #2B83E5;
+  --rarity-epic:      #9B51E0;
+  --rarity-legendary: #F5A300;
+
+  // ---- Semantic status ----
+  --success-500: #43B02A;
+  --success-soft:#E4F4DE;
+  --warning-500: #F5A300;
+  --warning-soft:#FFF1CC;
+  --danger-500:  #E2231A;
+  --danger-soft: #FCE3E1;
+  --info-500:    #2B6CE5;
+  --info-soft:   #E0EAFC;
+
+  // ===================== SEMANTIC ALIASES =====================
+
+  // Surfaces
+  --bg-app:           #F1F5F0;   // soft green-tinted app canvas
+  --surface-card:     var(--white);
+  --surface-elevated: var(--white);
+  --surface-sunken:   var(--slate-50);
+  --surface-brand:    var(--green-500);
+  --surface-brand-subtle: var(--green-50);
+  --surface-night:    #0F1822;   // dark HUD panels over the map
+  --surface-night-2:  #182634;
+
+  // Text
+  --text-primary:   var(--slate-900);
+  --text-secondary: var(--slate-600);
+  --text-muted:     var(--slate-400);
+  --text-brand:     var(--green-700);
+  --text-on-brand:  var(--white);
+  --text-inverse:   var(--white);
+  --text-on-night:  #E8F0F6;
+  --text-on-night-muted: #93A4B4;
+
+  // Borders
+  --border-subtle:  var(--slate-100);
+  --border-default: var(--slate-200);
+  --border-strong:  var(--slate-300);
+  --border-brand:   var(--green-500);
+
+  // Brand interaction
+  --brand:         var(--green-500);
+  --brand-hover:   var(--green-600);
+  --brand-active:  var(--green-700);
+  --brand-shadow:  var(--green-700);  // solid 3D button base
+  --brand-subtle:  var(--green-50);
+
+  // Reward / XP
+  --xp:        var(--gold-500);
+  --xp-shadow: var(--gold-700);
+  --xp-subtle: var(--gold-50);
+
+  // Focus ring
+  --ring: color-mix(in srgb, var(--green-500) 45%, transparent);
+}

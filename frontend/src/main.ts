@@ -1,5 +1,8 @@
 import { createApp } from 'vue'
-import './style.css'
+import { createPinia } from 'pinia'
+import 'leaflet/dist/leaflet.css'
+import '@/styles/main.scss'
 import App from './App.vue'
+import router from '@/router'
 
-createApp(App).mount('#app')
+createApp(App).use(createPinia()).use(router).mount('#app')

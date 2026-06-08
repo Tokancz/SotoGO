@@ -1,0 +1,44 @@
+// ŠotoGO — App shell
+// Mobile-first canvas. The prototype's phone bezel/notch is presentation only —
+// in production we use a centered 420px canvas + the device's real safe areas.
+@use 'abstracts' as *;
+
+#app {
+  min-height: 100dvh;
+}
+
+// On wider screens, sit the phone canvas on a soft backdrop and center it.
+@include respond-to('md') {
+  body {
+    background: var(--slate-100);
+  }
+}
+
+.app-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--container-mobile);
+  min-height: 100dvh;
+  margin-inline: auto;
+  background: var(--bg-app);
+  overflow: hidden;
+
+  @include respond-to('md') {
+    min-height: min(100dvh, 900px);
+    height: min(100dvh, 900px);
+    margin-block: max(0px, calc((100dvh - 900px) / 2));
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-xl);
+  }
+}
+
+// Scrollable screen content area, sitting above the fixed bottom nav.
+.app-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

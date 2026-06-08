@@ -1,0 +1,5 @@
+// ŠotoGO — Abstracts barrel
+// Mixins + functions only. Emits NO CSS, so it is safe to inject into every
+// SFC <style> via vite.config additionalData.
+@forward 'functions';
+@forward 'mixins';

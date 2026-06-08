@@ -1,0 +1,70 @@
+// ŠotoGO — Seed data
+// Ported from the design prototype's data.js (window.SG_DATA). This stands in
+// for the backend until the REST API exists (see docs/BACKEND.md). The store
+// reads from here; swap these for API calls later.
+
+import type {
+  Achievement,
+  Category,
+  CategoryKey,
+  Challenge,
+  Player,
+  Stop,
+  Vehicle,
+} from '@/types/game'
+
+export const CATS: Record<CategoryKey, Category> = {
+  tram:    { key: 'tram',    label: 'Tramvaj',   plural: 'Tramvaje',   color: 'var(--cat-tram)',    soft: 'var(--cat-tram-soft)',    icon: 'tram-front' },
+  bus:     { key: 'bus',     label: 'Autobus',   plural: 'Autobusy',   color: 'var(--cat-bus)',     soft: 'var(--cat-bus-soft)',     icon: 'bus' },
+  metro:   { key: 'metro',   label: 'Metro',     plural: 'Metro',      color: 'var(--cat-metro)',   soft: 'var(--cat-metro-soft)',   icon: 'train-front-tunnel' },
+  trolley: { key: 'trolley', label: 'Trolejbus', plural: 'Trolejbusy', color: 'var(--cat-trolley)', soft: 'var(--cat-trolley-soft)', icon: 'bus-front' },
+  train:   { key: 'train',   label: 'Vlak',      plural: 'Vlaky',      color: 'var(--cat-train)',   soft: 'var(--cat-train-soft)',   icon: 'train-front' },
+}
+
+export const VEHICLES: Vehicle[] = [
+  { cat: 'tram',    type: '15T',              number: '9325', operator: 'DPP',   rarity: 'rare',      found: '14. 5. 2026', isNew: true },
+  { cat: 'tram',    type: '14T',              number: '9112', operator: 'DPP',   rarity: 'common',    found: '12. 5. 2026' },
+  { cat: 'tram',    type: 'T3R.PV',           number: '8451', operator: 'DPP',   rarity: 'epic',      found: '9. 5. 2026' },
+  { cat: 'tram',    type: 'KT8D5',            number: '9048', operator: 'DPP',   rarity: 'rare',      found: '7. 5. 2026' },
+  { cat: 'bus',     type: 'SOR NS 12',        number: '3417', operator: 'DPP',   rarity: 'common',    found: '2. 5. 2026' },
+  { cat: 'bus',     type: 'Citybus',          number: '3290', operator: 'DPP',   rarity: 'common',    found: '1. 5. 2026' },
+  { cat: 'metro',   type: '81-71M',           number: '2042', operator: 'Metro', rarity: 'epic',      found: '28. 4. 2026' },
+  { cat: 'metro',   type: 'M1',               number: '4108', operator: 'Metro', rarity: 'rare',      found: '26. 4. 2026' },
+  { cat: 'train',   type: '471 CityElefant',  number: '042',  operator: 'ČD',    rarity: 'legendary', found: '20. 4. 2026' },
+  { cat: 'trolley', type: 'Škoda 24Tr',       number: '2007', operator: 'DPO',   rarity: 'epic',      found: '18. 4. 2026' },
+]
+
+/** Count of undiscovered (locked) slots per category. */
+export const LOCKED_COUNT: Record<CategoryKey, number> = {
+  tram: 6, bus: 9, metro: 3, trolley: 4, train: 7,
+}
+
+export const STOPS: Stop[] = [
+  { name: 'Florenc',           lines: ['B', 'C'], lat: 50.0897, lng: 14.44,   xp: 30, visited: true,  dist: '40 m' },
+  { name: 'Náměstí Republiky', lines: ['B'],      lat: 50.0884, lng: 14.428,  xp: 25, visited: false, dist: '320 m' },
+  { name: 'Můstek',            lines: ['A', 'B'], lat: 50.0843, lng: 14.4214, xp: 25, visited: true,  dist: '650 m' },
+  { name: 'Hlavní nádraží',    lines: ['C'],      lat: 50.0832, lng: 14.4355, xp: 35, visited: false, dist: '480 m' },
+  { name: 'Náměstí Míru',      lines: ['A'],      lat: 50.0758, lng: 14.4378, xp: 25, visited: false, dist: '1.2 km' },
+]
+
+export const CHALLENGES: Challenge[] = [
+  { title: 'Navštiv zastávku Florenc',  cat: 'metro', icon: 'map-pin',    value: 1, max: 1, reward: 80,  done: true },
+  { title: 'Najdi tramvaj 15T',         cat: 'tram',  icon: 'tram-front', value: 1, max: 1, reward: 100, done: true },
+  { title: 'Navštiv 5 nových zastávek', cat: null,    icon: 'route',      value: 3, max: 5, reward: 150, done: false },
+  { title: 'Najdi autobus SOR',         cat: 'bus',   icon: 'bus',        value: 0, max: 1, reward: 100, done: false },
+]
+
+export const ACHIEVEMENTS: Achievement[] = [
+  { title: 'Lovec tramvají',  desc: 'Najdi 50 tramvají',    icon: 'tram-front',        tier: 'epic',      unlocked: true },
+  { title: 'Metro expert',    desc: 'Všechny soupravy',     icon: 'train-front-tunnel', tier: 'rare',      unlocked: true },
+  { title: 'První objev',     desc: 'Vyfoť 1. vozidlo',     icon: 'sparkles',          tier: 'common',    unlocked: true },
+  { title: 'Stálý cestující', desc: '7denní série',         icon: 'flame',             tier: 'rare',      unlocked: true },
+  { title: 'Sběratel',        desc: 'Najdi 100 vozidel',    icon: 'layers',            tier: 'epic',      value: 74,  max: 100 },
+  { title: 'Šotouš roku',     desc: 'Navštiv 500 zastávek', icon: 'crown',             tier: 'legendary', value: 128, max: 500 },
+]
+
+export const PLAYER: Player = {
+  name: 'Petr Novák', handle: '@sotous_petr', level: 12,
+  xp: 2480, xpMax: 3000, xpTotal: 18420,
+  vehicles: 74, stops: 128, streak: 7,
+}

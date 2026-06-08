@@ -1,0 +1,49 @@
+// ŠotoGO — Map globals
+// These classes are injected as raw HTML by Leaflet divIcons, so they must be
+// GLOBAL (not scoped to the MapView SFC). Keep map overlay chrome here too.
+
+// Player location — pulsing green dot.
+.sg-player-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--brand);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 30%, transparent), var(--shadow-md);
+  animation: sg-pulse 2s ease-out infinite;
+}
+
+// Teardrop stop pin, colored per metro line via the --pin custom property.
+.sg-stop-pin {
+  position: relative;
+  width: 34px;
+  height: 42px;
+  filter: drop-shadow(0 3px 4px rgba(20, 26, 33, 0.3));
+}
+
+.sg-stop-pin__head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--pin);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+
+  > span { transform: rotate(45deg); }
+}
+
+// Leaflet container should never paint over our floating HUD.
+.leaflet-container {
+  isolation: isolate;
+  background: #e9eef2;
+  font-family: var(--font-body);
+}
