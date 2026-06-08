@@ -4,8 +4,10 @@ import axios from 'axios'
 
 export const TOKEN_KEY = 'sotogo_token'
 
+// `||` (not `??`) so an empty string from an unset CI variable also falls back,
+// instead of becoming a relative URL against the page origin.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
 })
 
 api.interceptors.request.use((cfg) => {
