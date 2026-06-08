@@ -3,14 +3,19 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import L from 'leaflet'
 import { useGameStore } from '@/stores/game'
 import { catalogApi } from '@/services/catalog'
+import { useGeolocation } from '@/composables/useGeolocation'
 import type { ApiStop } from '@/types/game'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgIcon from '@/components/SgIcon.vue'
 
 const game = useGameStore()
+const geo = useGeolocation()
 
-// Demo player location (real geolocation is a later feature).
-const PLAYER_LOC = { lat: 50.089, lng: 14.4395 }
+const DEFAULT_LOC = { lat: 50.0865, lng: 14.4319 } // Prague centre — fallback only
+const VISIT_RADIUS_M = 75 // how close you must physically be to check in
+const RELOAD_DISTANCE_M = 3000 // refetch nearby stops after moving this far
+const LOAD_KM = 10 // radius of stops loaded around the player
+const MIN_ZOOM = 12 // don't let the user zoom out past the loaded area
 
 const LINE_HEX: Record<string, string> = { A: '#00A562', B: '#F7A600', C: '#D9282F' }
 const CAT_HEX: Record<string, string> = {
@@ -28,17 +33,37 @@ function trackWeight(cat: string): number {
   return cat === 'metro' ? 5 : cat === 'tram' ? 4 : 3
 }
 
+const playerIcon = L.divIcon({
+  className: '',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+  html: '<div class="sg-player-dot"></div>',
+})
+
 const mapEl = ref<HTMLDivElement | null>(null)
 const map = shallowRef<L.Map | null>(null)
 const selected = ref<ApiStop | null>(null)
 const markersById: Record<string, L.Marker> = {}
 let trackLayer: L.LayerGroup | null = null
+let stopLayer: L.LayerGroup | null = null
+let playerMarker: L.Marker | null = null
+let accuracyCircle: L.Circle | null = null
+let lastLoadCenter: { lat: number; lng: number } | null = null
+let initialized = false
 
-// line short name → category, learned from the selected stop's routes (so the
-// sheet's line chips can be colored by category, matching the drawn tracks).
+const playerLoc = ref({ ...DEFAULT_LOC })
+const usingFallback = ref(false)
+
+const noStopsNearby = ref(false)
+const noticeText = computed(() =>
+  usingFallback.value
+    ? 'Poloha nedostupná — zobrazuji Prahu'
+    : noStopsNearby.value
+      ? 'V okolí nejsou žádné zastávky'
+      : '',
+)
+
 const lineCats = ref<Record<string, string>>({})
-
-// Stop search
 const query = ref('')
 const results = ref<ApiStop[]>([])
 
@@ -48,8 +73,7 @@ function haversine(aLat: number, aLng: number, bLat: number, bLng: number): numb
   const dLng = ((bLng - aLng) * Math.PI) / 180
   const la1 = (aLat * Math.PI) / 180
   const la2 = (bLat * Math.PI) / 180
-  const h =
-    Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(h))
 }
 
@@ -57,7 +81,13 @@ function fmtDist(m: number): string {
   return m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`
 }
 
-/** Pin color + short label for a stop, prioritising metro line colors. */
+/** A lat/lng box `km` in every direction around a point. */
+function boundsAround(loc: { lat: number; lng: number }, km: number): L.LatLngBounds {
+  const dLat = km / 111
+  const dLng = km / (111 * Math.cos((loc.lat * Math.PI) / 180) || 1)
+  return L.latLngBounds([loc.lat - dLat, loc.lng - dLng], [loc.lat + dLat, loc.lng + dLng])
+}
+
 function pinStyle(stop: ApiStop): { color: string; label: string } {
   const letter = stop.lines.find((l) => l in LINE_HEX)
   if (stop.categories.includes('metro') && letter) {
@@ -74,22 +104,26 @@ function rewardFor(stop: ApiStop): number {
   return 20
 }
 
-const distanceLabel = computed(() =>
-  selected.value
-    ? fmtDist(haversine(PLAYER_LOC.lat, PLAYER_LOC.lng, selected.value.lat, selected.value.lng))
-    : '',
-)
-const selectedVisited = computed(() =>
-  selected.value ? game.visitedSet.has(selected.value.id) : false,
-)
-
 function lineColor(line: string): string {
   const cat = lineCats.value[line]
   if (cat) return CAT_HEX[cat] ?? 'var(--slate-500)'
-  return LINE_HEX[line] ?? 'var(--slate-500)' // fallback before routes load
+  return LINE_HEX[line] ?? 'var(--slate-500)'
 }
 
-function addMarker(m: L.Map, stop: ApiStop): L.Marker {
+const distanceMeters = computed(() =>
+  selected.value
+    ? haversine(playerLoc.value.lat, playerLoc.value.lng, selected.value.lat, selected.value.lng)
+    : Infinity,
+)
+const distanceLabel = computed(() => (selected.value ? fmtDist(distanceMeters.value) : ''))
+const selectedVisited = computed(() =>
+  selected.value ? game.visitedSet.has(selected.value.id) : false,
+)
+const canVisit = computed(
+  () => selected.value != null && !selectedVisited.value && distanceMeters.value <= VISIT_RADIUS_M,
+)
+
+function addMarker(stop: ApiStop): L.Marker {
   const { color, label } = pinStyle(stop)
   const visited = game.visitedSet.has(stop.id) ? ' sg-stop-pin--visited' : ''
   const gym = stop.isGym ? ' sg-stop-pin--gym' : ''
@@ -101,17 +135,22 @@ function addMarker(m: L.Map, stop: ApiStop): L.Marker {
              <div class="sg-stop-pin__head"><span>${label}</span></div>
            </div>`,
   })
-  const marker = L.marker([stop.lat, stop.lng], { icon }).addTo(m)
+  const marker = L.marker([stop.lat, stop.lng], { icon })
+  if (stopLayer) marker.addTo(stopLayer)
   marker.on('click', () => selectStop(stop))
   markersById[stop.id] = marker
   return marker
 }
 
-function renderStops(m: L.Map) {
-  for (const stop of game.stops) addMarker(m, stop)
+function renderStops() {
+  for (const stop of game.stops) addMarker(stop)
 }
 
-/** Draw the category-colored tracks for every route serving a stop. */
+function clearStops() {
+  stopLayer?.clearLayers()
+  for (const id of Object.keys(markersById)) delete markersById[id]
+}
+
 async function drawTracks(stop: ApiStop) {
   if (!map.value || !trackLayer) return
   trackLayer.clearLayers()
@@ -121,7 +160,6 @@ async function drawTracks(stop: ApiStop) {
   } catch {
     return
   }
-  // Remember each line's category so the sheet chips match the track colors.
   const cats: Record<string, string> = {}
   for (const r of routes) cats[r.line] = r.category
   lineCats.value = cats
@@ -137,10 +175,9 @@ async function drawTracks(stop: ApiStop) {
   }
 }
 
-/** Select a stop: show its sheet, ensure it has a marker, and draw its tracks. */
 function selectStop(stop: ApiStop) {
   selected.value = stop
-  if (map.value && !markersById[stop.id]) addMarker(map.value, stop)
+  if (!markersById[stop.id]) addMarker(stop)
   void drawTracks(stop)
 }
 
@@ -167,43 +204,97 @@ function selectResult(stop: ApiStop) {
   selectStop(stop)
 }
 
-onMounted(async () => {
-  if (!mapEl.value) return
+function updatePlayer(loc: { lat: number; lng: number }, accuracy: number | null) {
+  if (!map.value) return
+  const ll: L.LatLngExpression = [loc.lat, loc.lng]
+  if (!playerMarker) playerMarker = L.marker(ll, { icon: playerIcon, zIndexOffset: 1000 }).addTo(map.value)
+  else playerMarker.setLatLng(ll)
+  if (accuracy != null && accuracy < 1000) {
+    if (!accuracyCircle) {
+      accuracyCircle = L.circle(ll, {
+        radius: accuracy,
+        color: '#43B02A',
+        weight: 1,
+        fillColor: '#43B02A',
+        fillOpacity: 0.08,
+      }).addTo(map.value)
+    } else {
+      accuracyCircle.setLatLng(ll)
+      accuracyCircle.setRadius(accuracy)
+    }
+  }
+}
 
-  const m = L.map(mapEl.value, { zoomControl: false, attributionControl: false }).setView(
-    [PLAYER_LOC.lat, PLAYER_LOC.lng],
-    15,
-  )
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-  }).addTo(m)
-
-  const playerIcon = L.divIcon({
-    className: '',
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    html: '<div class="sg-player-dot"></div>',
-  })
-  L.marker([PLAYER_LOC.lat, PLAYER_LOC.lng], { icon: playerIcon, zIndexOffset: 1000 }).addTo(m)
-
-  trackLayer = L.layerGroup().addTo(m)
-  map.value = m
-  setTimeout(() => m.invalidateSize(), 60)
-
-  // Load stops + the player's visits together so visited pins render dimmed.
+async function loadAround(loc: { lat: number; lng: number }) {
   await Promise.all([
-    game.loadStops({ lat: PLAYER_LOC.lat, lng: PLAYER_LOC.lng, km: 2.5 }),
+    game.loadStops({ lat: loc.lat, lng: loc.lng, km: LOAD_KM }),
     game.loadProgress(),
   ])
-  renderStops(m)
-
-  // Preselect the nearest stop for the bottom sheet.
+  lastLoadCenter = { ...loc }
+  noStopsNearby.value = game.stops.length === 0
+  // Lock panning to the loaded area so the user can't drift into empty space.
+  map.value?.setMaxBounds(boundsAround(loc, LOAD_KM))
+  clearStops()
+  renderStops()
   selected.value =
     [...game.stops].sort(
       (a, b) =>
-        haversine(PLAYER_LOC.lat, PLAYER_LOC.lng, a.lat, a.lng) -
-        haversine(PLAYER_LOC.lat, PLAYER_LOC.lng, b.lat, b.lng),
+        haversine(loc.lat, loc.lng, a.lat, a.lng) - haversine(loc.lat, loc.lng, b.lat, b.lng),
     )[0] ?? null
+}
+
+// Live position → follow the player and refetch stops when they move far.
+watch(
+  () => geo.coords.value,
+  (c) => {
+    if (!c || !map.value) return
+    playerLoc.value = { lat: c.lat, lng: c.lng }
+    usingFallback.value = false
+    updatePlayer(c, c.accuracy)
+    if (!initialized) {
+      initialized = true
+      map.value.setView([c.lat, c.lng], 16)
+      void loadAround(c)
+    } else if (
+      lastLoadCenter &&
+      haversine(c.lat, c.lng, lastLoadCenter.lat, lastLoadCenter.lng) > RELOAD_DISTANCE_M
+    ) {
+      void loadAround(c)
+    }
+  },
+)
+
+// Location unavailable/denied → fall back to Prague so the map still works.
+watch(
+  () => geo.error.value,
+  (e) => {
+    if (e && !initialized && map.value) {
+      initialized = true
+      usingFallback.value = true
+      playerLoc.value = { ...DEFAULT_LOC }
+      map.value.setView([DEFAULT_LOC.lat, DEFAULT_LOC.lng], 14)
+      updatePlayer(DEFAULT_LOC, null)
+      void loadAround(DEFAULT_LOC)
+    }
+  },
+)
+
+onMounted(() => {
+  if (!mapEl.value) return
+  const m = L.map(mapEl.value, {
+    zoomControl: false,
+    attributionControl: false,
+    minZoom: MIN_ZOOM,
+    maxBoundsViscosity: 1.0,
+  }).setView([DEFAULT_LOC.lat, DEFAULT_LOC.lng], 13)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+  }).addTo(m)
+  trackLayer = L.layerGroup().addTo(m)
+  stopLayer = L.layerGroup().addTo(m)
+  map.value = m
+  setTimeout(() => m.invalidateSize(), 60)
+  geo.start()
 })
 
 onBeforeUnmount(() => {
@@ -211,9 +302,13 @@ onBeforeUnmount(() => {
   map.value = null
 })
 
+function recenter() {
+  map.value?.setView([playerLoc.value.lat, playerLoc.value.lng], 16)
+}
+
 async function visitSelected() {
   const stop = selected.value
-  if (!stop || game.visitedSet.has(stop.id)) return
+  if (!stop || !canVisit.value) return
   await game.visitStop(stop.id)
   markersById[stop.id]?.getElement()?.firstElementChild?.classList.add('sg-stop-pin--visited')
 }
@@ -254,8 +349,13 @@ async function visitSelected() {
       </div>
     </div>
 
+    <!-- Location / no-stops notice -->
+    <div v-if="noticeText" class="geo-notice">
+      <SgIcon name="navigation" :size="14" /> {{ noticeText }}
+    </div>
+
     <!-- Locate FAB -->
-    <button class="locate" aria-label="Moje poloha" @click="map?.setView([PLAYER_LOC.lat, PLAYER_LOC.lng], 16)">
+    <button class="locate" aria-label="Moje poloha" @click="recenter">
       <SgIcon name="locate-fixed" :size="22" />
     </button>
 
@@ -278,9 +378,10 @@ async function visitSelected() {
           <div class="stopsheet__dist"><SgIcon name="navigation" :size="12" />{{ distanceLabel }} odsud</div>
         </div>
         <SgBadge v-if="selectedVisited" tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
-        <button v-else class="stopsheet__reward" @click="visitSelected">
+        <button v-else-if="canVisit" class="stopsheet__reward" @click="visitSelected">
           <SgIcon name="zap" :size="14" />+{{ rewardFor(selected) }} XP
         </button>
+        <span v-else class="stopsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
       </div>
     </div>
   </div>
@@ -369,6 +470,24 @@ async function visitSelected() {
 .hud__resultname { flex: 1; min-width: 0; font-weight: var(--fw-medium); color: var(--text-primary); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hud__resultlines { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); flex: none; }
 
+.geo-notice {
+  position: absolute;
+  top: 128px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-night);
+  color: var(--text-on-night);
+  font-size: 12.5px;
+  padding: 7px 13px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+  white-space: nowrap;
+}
+
 .locate {
   position: absolute;
   right: 14px;
@@ -436,5 +555,18 @@ async function visitSelected() {
   border-radius: 999px;
   flex: none;
   &:active { transform: scale(0.96); }
+}
+.stopsheet__far {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  padding: 6px 11px;
+  border-radius: 999px;
+  flex: none;
 }
 </style>
