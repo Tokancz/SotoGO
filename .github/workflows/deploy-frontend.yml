@@ -30,7 +30,11 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        # Not `npm ci`: npm prunes platform-specific optional deps (e.g. the
+        # @napi-rs/@emnapi wasm runtime) from a Windows-generated lockfile, so a
+        # strict `npm ci` on the Linux runner fails with "Missing … from lock
+        # file". `npm install` reconciles the optionals on the runner. See npm/cli#4828.
+        run: npm install --no-audit --no-fund
 
       - name: Build
         working-directory: frontend
