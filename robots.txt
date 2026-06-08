@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tokancz.github.io/SotoGO/sitemap.xml
