@@ -4,6 +4,9 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // On GitHub Pages the app is served from /<repo>/, so the CI build sets
+  // VITE_BASE=/SotoGO/. Local dev/build default to root.
+  base: process.env.VITE_BASE ?? '/',
   plugins: [vue()],
   resolve: {
     alias: {

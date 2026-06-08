@@ -14,7 +14,11 @@ function required(name: string): string {
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
-  clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
+  // Allowed CORS origins — comma-separated (e.g. the GitHub Pages site + localhost).
+  clientOrigins: (process.env.CLIENT_ORIGIN ?? 'http://localhost:5173')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   databaseUrl: required('DATABASE_URL'),
   dbSchema: process.env.DB_SCHEMA ?? 'public',
   jwtSecret: required('JWT_SECRET'),
