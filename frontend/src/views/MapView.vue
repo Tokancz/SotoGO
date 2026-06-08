@@ -50,6 +50,8 @@ let playerMarker: L.Marker | null = null
 let accuracyCircle: L.Circle | null = null
 let lastLoadCenter: { lat: number; lng: number } | null = null
 let initialized = false
+let destroyed = false // set on unmount so async work can't touch a dead map
+let invalidateTimer: ReturnType<typeof setTimeout> | undefined
 
 const playerLoc = ref({ ...DEFAULT_LOC })
 const usingFallback = ref(false)
@@ -160,6 +162,7 @@ async function drawTracks(stop: ApiStop) {
   } catch {
     return
   }
+  if (destroyed || !map.value || !trackLayer) return // unmounted during fetch
   const cats: Record<string, string> = {}
   for (const r of routes) cats[r.line] = r.category
   lineCats.value = cats
@@ -230,6 +233,7 @@ async function loadAround(loc: { lat: number; lng: number }) {
     game.loadStops({ lat: loc.lat, lng: loc.lng, km: LOAD_KM }),
     game.loadProgress(),
   ])
+  if (destroyed || !map.value) return // unmounted while loading
   lastLoadCenter = { ...loc }
   noStopsNearby.value = game.stops.length === 0
   // Lock panning to the loaded area so the user can't drift into empty space.
@@ -247,7 +251,7 @@ async function loadAround(loc: { lat: number; lng: number }) {
 watch(
   () => geo.coords.value,
   (c) => {
-    if (!c || !map.value) return
+    if (destroyed || !c || !map.value) return
     playerLoc.value = { lat: c.lat, lng: c.lng }
     usingFallback.value = false
     updatePlayer(c, c.accuracy)
@@ -268,7 +272,7 @@ watch(
 watch(
   () => geo.error.value,
   (e) => {
-    if (e && !initialized && map.value) {
+    if (e && !initialized && !destroyed && map.value) {
       initialized = true
       usingFallback.value = true
       playerLoc.value = { ...DEFAULT_LOC }
@@ -293,11 +297,14 @@ onMounted(() => {
   trackLayer = L.layerGroup().addTo(m)
   stopLayer = L.layerGroup().addTo(m)
   map.value = m
-  setTimeout(() => m.invalidateSize(), 60)
+  invalidateTimer = setTimeout(() => m.invalidateSize(), 60)
   geo.start()
 })
 
 onBeforeUnmount(() => {
+  destroyed = true
+  clearTimeout(invalidateTimer)
+  geo.stop()
   map.value?.remove()
   map.value = null
 })

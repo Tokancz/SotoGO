@@ -49,7 +49,7 @@ const reportOpen = ref(false)
 
       <div class="screen__sectionhead">
         <span class="eyebrow">Poslední úlovky</span>
-        <span class="screen__link">Vše v parku</span>
+        <RouterLink :to="{ name: 'park' }" class="screen__link">Vše v parku</RouterLink>
       </div>
       <div v-if="game.recentVehicles.length === 0" class="empty">
         <SgIcon name="camera" :size="22" />
@@ -115,7 +115,7 @@ const reportOpen = ref(false)
 .screen__scroll { flex: 1; overflow-y: auto; padding: 18px 16px 90px; }
 .screen__sectionhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
 .screen__eyebrow { display: block; margin-bottom: 12px; }
-.screen__link { font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 13px; color: var(--text-brand); }
+.screen__link { font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 13px; color: var(--text-brand); text-decoration: none; cursor: pointer; }
 
 .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .hero__body { flex: 1; min-width: 0; }

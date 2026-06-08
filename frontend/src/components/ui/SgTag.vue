@@ -38,11 +38,12 @@ const style = computed(() => (props.selected ? { background: props.color } : und
   font-weight: var(--fw-semibold);
   font-size: 14px;
   padding: 8px 14px;
-  border-radius: var(--radius-pill);
+  border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
   background: var(--surface-card);
   color: var(--text-secondary);
-  box-shadow: inset 0 0 0 1px var(--border-default);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-default) 45%, transparent);
   transition: transform 0.1s ease, background 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
   white-space: nowrap;
   user-select: none;
