@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import AppLayout from '@/components/layout/AppLayout.vue'
+// Top-level outlet. The router decides between the standalone LoginView and the
+// AppLayout-wrapped screens.
 </script>
 
 <template>
-  <AppLayout />
+  <router-view />
 </template>

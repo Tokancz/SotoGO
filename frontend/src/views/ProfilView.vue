@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/game'
+import { useAuthStore } from '@/stores/auth'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgLevelRing from '@/components/game/SgLevelRing.vue'
 import SgBadge from '@/components/ui/SgBadge.vue'
@@ -10,6 +12,18 @@ import SgIcon from '@/components/SgIcon.vue'
 
 const game = useGameStore()
 const player = computed(() => game.player)
+
+const auth = useAuthStore()
+const router = useRouter()
+
+// Prefer the signed-in account's name/handle; fall back to the seed player.
+const displayName = computed(() => auth.user?.username ?? player.value.name)
+const displayHandle = computed(() => (auth.user ? auth.user.email : player.value.handle))
+
+function logout() {
+  auth.logout()
+  router.replace({ name: 'login' })
+}
 
 const push = ref(true)
 const sound = ref(true)
@@ -23,8 +37,8 @@ const sound = ref(true)
       <div class="hero">
         <SgLevelRing :level="player.level" :value="player.xp" :max="player.xpMax" :size="92" :sub-text="`${player.xp}/${player.xpMax}`" />
         <div class="hero__body">
-          <div class="hero__name">{{ player.name }}</div>
-          <div class="hero__handle">{{ player.handle }}</div>
+          <div class="hero__name">{{ displayName }}</div>
+          <div class="hero__handle">{{ displayHandle }}</div>
           <SgBadge tone="brand" variant="solid" icon="award">Šotouš · Level {{ player.level }}</SgBadge>
         </div>
       </div>
@@ -74,6 +88,10 @@ const sound = ref(true)
           <span class="settings__label">Soukromí</span>
           <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
         </div>
+        <button type="button" class="settings__row settings__row--action" @click="logout">
+          <SgIcon name="log-out" :size="20" />
+          <span class="settings__label">Odhlásit se</span>
+        </button>
       </div>
     </div>
   </div>
@@ -122,6 +140,16 @@ const sound = ref(true)
 
   & + & { border-top: 1px solid var(--border-subtle); }
 }
-.settings__label { flex: 1; font-weight: var(--fw-medium); font-size: 15px; color: var(--text-primary); }
+.settings__label { flex: 1; font-weight: var(--fw-medium); font-size: 15px; color: var(--text-primary); text-align: left; }
 .settings__chevron { color: var(--text-muted); }
+.settings__row--action {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: var(--danger-500);
+  .settings__label { color: var(--danger-500); }
+  &:hover { background: var(--surface-sunken); }
+}
 </style>
