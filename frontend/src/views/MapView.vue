@@ -380,26 +380,30 @@ async function visitSelected() {
     <!-- Bottom stop sheet -->
     <div v-if="selected" class="stopsheet">
       <div class="stopsheet__panel">
-        <div class="stopsheet__lines">
-          <span
-            v-for="l in selected.lines.slice(0, 4)"
-            :key="l"
-            class="stopsheet__line"
-            :style="{ background: lineColor(l) }"
-          >{{ l }}</span>
-        </div>
-        <div class="stopsheet__body">
+        <div class="stopsheet__info">
           <div class="stopsheet__name">
             {{ selected.name }}
-            <SgIcon v-if="selected.isGym" name="award" :size="14" class="stopsheet__gym" />
+            <SgIcon v-if="selected.isGym" name="award" :size="16" class="stopsheet__gym" />
           </div>
-          <div class="stopsheet__dist"><SgIcon name="navigation" :size="12" />{{ distanceLabel }} odsud</div>
+          <div class="stopsheet__meta">
+            <div class="stopsheet__lines">
+              <span
+                v-for="l in selected.lines.slice(0, 4)"
+                :key="l"
+                class="stopsheet__line"
+                :style="{ background: lineColor(l) }"
+              >{{ l }}</span>
+            </div>
+            <div class="stopsheet__dist"><SgIcon name="navigation" :size="12" />{{ distanceLabel }} odsud</div>
+          </div>
         </div>
-        <SgBadge v-if="selectedVisited" tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
-        <button v-else-if="canVisit" class="stopsheet__reward" @click="visitSelected">
-          <SgIcon name="zap" :size="14" />+{{ rewardFor(selected) }} XP
-        </button>
-        <span v-else class="stopsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
+        <div class="stopsheet__action">
+          <SgBadge v-if="selectedVisited" tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
+          <button v-else-if="canVisit" class="stopsheet__reward" @click="visitSelected">
+            <SgIcon name="zap" :size="16" />+{{ rewardFor(selected) }} XP
+          </button>
+          <span v-else class="stopsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
+        </div>
       </div>
     </div>
   </div>
@@ -527,13 +531,15 @@ async function visitSelected() {
 .stopsheet { position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5; }
 .stopsheet__panel {
   display: flex;
-  align-items: center;
-  gap: 11px;
+  align-items: stretch;
+  gap: 12px;
   background: var(--surface-card);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   padding: 14px 16px;
 }
+.stopsheet__info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.stopsheet__meta { display: flex; align-items: center; gap: 9px; }
 .stopsheet__lines { display: flex; gap: 4px; flex: none; }
 .stopsheet__line {
   min-width: 26px;
@@ -546,32 +552,37 @@ async function visitSelected() {
   font-weight: var(--fw-bold);
   font-size: 13px;
 }
-.stopsheet__body { flex: 1; min-width: 0; }
 .stopsheet__name {
   display: flex;
   align-items: center;
   gap: 6px;
   font-family: var(--font-display);
   font-weight: var(--fw-semibold);
-  font-size: 16px;
+  font-size: 20px;
   color: var(--text-primary);
 }
-.stopsheet__gym { color: var(--xp); }
+.stopsheet__gym { color: var(--xp); flex: none; }
 .stopsheet__dist { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); }
+// The action column stretches to the panel's full height (a <div> obeys
+// align-self: stretch where a <button> wouldn't in mobile WebKit); the reward
+// button then fills it via flex-grow, which buttons honor on the main axis.
+.stopsheet__action { flex: none; display: flex; flex-direction: column; justify-content: center; }
 .stopsheet__reward {
-  display: inline-flex;
+  flex: 1;
+  width: 100%;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 5px;
   border: none;
   cursor: pointer;
   font-family: var(--font-display);
   font-weight: var(--fw-bold);
-  font-size: 13px;
+  font-size: 15px;
   color: var(--gold-700);
   background: var(--xp-subtle);
-  padding: 6px 11px;
-  border-radius: 999px;
-  flex: none;
+  padding: 0 18px;
+  border-radius: var(--radius-lg);
   &:active { transform: scale(0.96); }
 }
 .stopsheet__far {

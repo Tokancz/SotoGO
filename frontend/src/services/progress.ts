@@ -49,10 +49,20 @@ export const progressApi = {
       .then((r) => r.data)
   },
 
+  removeVehicle: (vehicleId: string) =>
+    api
+      .delete<{ user: User; collectedIds: string[] }>(`/me/vehicles/${vehicleId}`)
+      .then((r) => r.data),
+
   visitStop: (stopId: string) =>
     api
       .post<MutationResult & { visitedIds: string[] }>(`/me/stops/${stopId}/visit`)
       .then((r) => r.data),
+
+  // `date` is the client's LOCAL date (YYYY-MM-DD) so the streak's day
+  // boundaries match the user's calendar, not the server's timezone.
+  checkin: (date: string) =>
+    api.post<{ user: User }>('/me/checkin', { date }).then((r) => r.data),
 
   quests: () =>
     api

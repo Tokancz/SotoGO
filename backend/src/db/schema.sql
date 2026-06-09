@@ -14,8 +14,15 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url    TEXT,
   level         INT NOT NULL DEFAULT 1,
   xp            INT NOT NULL DEFAULT 0,
+  -- Daily login streak: consecutive days the player has checked in. `last_active`
+  -- is the player's LOCAL date (sent by the client) of their most recent check-in.
+  streak_count    INT NOT NULL DEFAULT 0,
+  last_active_date DATE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Backfill the streak columns on databases created before streaks existed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_count INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_date DATE;
 
 -- ── Vehicle catalog ──────────────────────────────────────────────────────────
 -- The collectible "Pokédex": one row per vehicle MODEL (type), not per physical

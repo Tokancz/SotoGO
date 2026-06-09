@@ -40,6 +40,22 @@ const stars: Record<Rarity, string> = {
 
 const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
 const detailPhoto = computed(() => (detail.value ? game.collectedPhotos[detail.value.id] : undefined))
+
+const deleting = ref(false)
+async function deleteDetail() {
+  const v = detail.value
+  if (!v || deleting.value) return
+  if (!confirm(`Opravdu odstranit ${v.shortName} z parku?`)) return
+  deleting.value = true
+  try {
+    await game.removeVehicle(v.id)
+    detail.value = null
+  } catch (err) {
+    console.error('Odstranění vozidla selhalo:', err)
+  } finally {
+    deleting.value = false
+  }
+}
 const previewStyle = computed(() =>
   detailCat.value
     ? {
@@ -134,6 +150,9 @@ const previewStyle = computed(() =>
             <SgStatTile :value="detail.operator" label="Dopravce" color="var(--brand)" icon="award" />
           </div>
           <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }}</div>
+          <button class="sheet__delete" :disabled="deleting" @click="deleteDetail">
+            <SgIcon name="trash-2" :size="16" />{{ deleting ? 'Odstraňuji…' : 'Odstranit z parku' }}
+          </button>
         </div>
       </div>
     </Teleport>
@@ -206,5 +225,25 @@ const previewStyle = computed(() =>
   font-size: 13px;
   color: var(--text-secondary);
   svg { color: var(--text-muted); }
+}
+.sheet__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 20px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--danger-500) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-500);
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+  &:active { transform: scale(0.98); }
+  &:disabled { opacity: 0.6; cursor: default; }
 }
 </style>

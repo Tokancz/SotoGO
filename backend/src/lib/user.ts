@@ -8,6 +8,8 @@ export interface UserRow {
   avatar_url: string | null
   level: number
   xp: number
+  streak_count: number
+  last_active_date: string | null
   created_at: string
 }
 
@@ -19,5 +21,6 @@ export function publicUser(u: UserRow) {
     avatarUrl: u.avatar_url,
     level: u.level,
     xp: u.xp,
+    streak: u.streak_count ?? 0,
   }
 }
