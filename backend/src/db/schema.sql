@@ -107,3 +107,15 @@ CREATE TABLE IF NOT EXISTS user_quest_claims (
   claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, period, quest_id)
 );
+
+-- Latched quest completions: once a quest reaches its target within a period we
+-- record it here, so the "done" state can't regress if the player later removes
+-- a vehicle (which decrements the live count). Recorded the first time progress
+-- is observed at/above target; claims still gate the actual XP payout.
+CREATE TABLE IF NOT EXISTS user_quest_completions (
+  user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  period       BIGINT NOT NULL,
+  quest_id     TEXT NOT NULL,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, period, quest_id)
+);
