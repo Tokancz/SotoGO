@@ -4,6 +4,7 @@ import { useGameStore } from '@/stores/game'
 import { useCamera, type CropRect } from '@/composables/useCamera'
 import { useDialog } from '@/composables/useDialog'
 import { recognizeFleetNumber, warmUpOcr } from '@/lib/ocr'
+import { downscaleCanvas, downscaleImageFile } from '@/lib/image'
 import { guessCategory, resolveFleetNumber } from '@/data/fleet'
 import type { CatalogVehicle, CategoryKey } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
@@ -28,14 +29,10 @@ const corners = ['nw', 'ne', 'sw', 'se'] as const
 const RETICLE: CropRect = { x: 0.13, y: 0.36, w: 0.74, h: 0.2 }
 
 const stillUrl = ref('')
-// The captured photo to upload with the catch (JPEG blob, or the picked file).
+// The downscaled catch photo to upload (capped + re-encoded; see @/lib/image).
 const photoBlob = ref<Blob | null>(null)
 const recognizedNumber = ref<string | null>(null)
 const scanError = ref(false)
-
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.85))
-}
 
 // The resolved catalog model shown on the reward screen.
 const matched = ref<CatalogVehicle | null>(null)
@@ -97,7 +94,7 @@ async function capture() {
   // the reticle crop for OCR.
   const full = camera.captureCanvas(videoEl.value)
   stillUrl.value = full.toDataURL('image/jpeg', 0.8)
-  photoBlob.value = await canvasToBlob(full)
+  photoBlob.value = await downscaleCanvas(full)
   const crop = camera.captureCanvas(videoEl.value, RETICLE)
   camera.stop()
   phase.value = 'scan'
@@ -117,10 +114,11 @@ async function onFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   stillUrl.value = URL.createObjectURL(file)
-  photoBlob.value = file
   phase.value = 'scan'
   scanError.value = false
   try {
+    // OCR reads the original file; only the uploaded copy gets downscaled.
+    photoBlob.value = await downscaleImageFile(file)
     const { number } = await recognizeFleetNumber(file)
     applyNumber(number)
   } catch (err) {

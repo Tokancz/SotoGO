@@ -48,11 +48,11 @@ const vars = computed(() => ({
 
   <button v-else type="button" class="sg-vcard" :class="{ 'sg-vcard--compact': compact }" :style="vars">
     <div v-if="compact" class="sg-vcard__lead">
-      <img v-if="image" :src="image" :alt="`${type} ${number}`" />
+      <img v-if="image" :src="image" :alt="`${type} ${number}`" loading="lazy" decoding="async" />
       <SgIcon v-else :name="categoryIcon" />
     </div>
     <div v-else class="sg-vcard__media">
-      <img v-if="image" :src="image" :alt="`${type} ${number}`" />
+      <img v-if="image" :src="image" :alt="`${type} ${number}`" loading="lazy" decoding="async" />
       <div v-else class="sg-vcard__media-fallback"><SgIcon :name="categoryIcon" /></div>
       <span class="sg-vcard__catchip"><SgIcon :name="categoryIcon" />{{ category }}</span>
       <span v-if="rarity" class="sg-vcard__rarity"><SgIcon name="star" /></span>
