@@ -45,6 +45,12 @@ const router = createRouter({
           component: () => import('@/views/ProfilView.vue'),
           meta: { title: 'Profil' },
         },
+        {
+          path: 'zebricek',
+          name: 'zebricek',
+          component: () => import('@/views/ZebricekView.vue'),
+          meta: { title: 'Žebříček' },
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/mapa' },

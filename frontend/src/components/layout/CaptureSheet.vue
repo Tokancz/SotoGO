@@ -18,7 +18,7 @@ const camera = useCamera()
 const rootEl = ref<HTMLElement | null>(null)
 useDialog(rootEl, { onClose: () => emit('close') })
 
-type Phase = 'aim' | 'scan' | 'confirm' | 'reward'
+type Phase = 'aim' | 'scan' | 'confirm' | 'reject' | 'reward'
 const phase = ref<Phase>('aim')
 
 const videoEl = ref<HTMLVideoElement | null>(null)
@@ -78,6 +78,13 @@ const AUTO_ACCEPT_CONFIDENCE = 0.85
  * via the DPP ranges); otherwise fall back to the model's visual candidates.
  */
 function applyRecognition(result: RecognizeResult) {
+  // The model judged the photo not to be a public-transport vehicle — don't let
+  // a random picture count as a catch.
+  if (!result.isPublicTransport) {
+    phase.value = 'reject'
+    return
+  }
+
   const number = result.fleetNumber || null
   recognizedNumber.value = number
 
@@ -214,7 +221,7 @@ async function addToPark() {
           <div v-if="phase === 'scan'" class="capture__scanline sg-scan-line" />
         </div>
         <div v-if="phase === 'aim' && camera.active.value" class="capture__hint">
-          Zaměř evidenční číslo do rámečku
+          Vyfoť vozidlo tak, aby bylo vidět evidenční číslo
         </div>
         <div v-if="phase === 'scan'" class="capture__status">
           <SgIcon name="scan-line" :size="16" /> Čtu evidenční číslo…
@@ -286,6 +293,20 @@ async function addToPark() {
 
       <div class="capture__actions">
         <SgButton variant="secondary" size="lg" full-width leading-icon="rotate-ccw" @click="restart">
+          Zkusit znovu
+        </SgButton>
+      </div>
+    </div>
+
+    <!-- REJECT: the photo isn't a public-transport vehicle -->
+    <div v-else-if="phase === 'reject'" class="capture__reject">
+      <div class="capture__reject-icon"><SgIcon name="image-off" :size="44" /></div>
+      <div class="capture__reject-title">Tohle nevypadá jako vozidlo</div>
+      <p class="capture__reject-sub">
+        Na fotce jsme nenašli žádné pražské MHD vozidlo. Vyfoť tramvaj, autobus, metro, trolejbus nebo vlak.
+      </p>
+      <div class="capture__actions">
+        <SgButton variant="primary" size="lg" full-width leading-icon="rotate-ccw" @click="restart">
           Zkusit znovu
         </SgButton>
       </div>
@@ -369,10 +390,12 @@ async function addToPark() {
 }
 .capture__reticle {
   position: absolute;
-  width: 74%;
-  max-width: 320px;
-  aspect-ratio: 320 / 86;
-  --reticle-radius: 22px;
+  // A roomy vehicle-framing guide — the number can sit anywhere inside it, the
+  // whole frame is sent for recognition (no centered crop anymore).
+  width: 84%;
+  max-width: 380px;
+  aspect-ratio: 4 / 5;
+  --reticle-radius: 26px;
   border-radius: var(--reticle-radius);
   // Dim everything outside the frame, with a faint inner hairline for definition.
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
@@ -559,6 +582,42 @@ async function addToPark() {
   font-size: 13px;
   color: #ff8a80;
   margin-bottom: 14px;
+}
+
+.capture__reject {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 28px 30px;
+  text-align: center;
+  color: #fff;
+}
+.capture__reject .capture__actions { width: 100%; }
+.capture__reject-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  color: var(--text-on-night-muted);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.capture__reject-title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: 21px;
+}
+.capture__reject-sub {
+  margin-top: 10px;
+  max-width: 300px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-on-night-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -228,6 +228,16 @@ export const useGameStore = defineStore('game', {
       void this.loadQuests() // catch count dropped — refresh quest progress
     },
 
+    /** Wipe all progress (vehicles, stops, quests, XP). Irreversible. */
+    async resetProgress() {
+      const res = await progressApi.resetProgress()
+      this.collectedIds = res.collectedIds
+      this.visitedIds = res.visitedIds
+      this.collectedPhotos = {}
+      useAuthStore().setUser(res.user)
+      void this.loadQuests()
+    },
+
     /** Collect by category + short name (what the OCR/capture flow knows). */
     async collectByModel(category: CategoryKey, shortName: string, photo?: Blob | null) {
       const v = this.catalog.find((x) => x.category === category && x.shortName === shortName)

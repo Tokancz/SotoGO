@@ -18,6 +18,8 @@ export interface RecognizeCandidate {
 }
 
 export interface RecognizeResult {
+  /** Whether the photo actually shows a Prague public-transport vehicle. */
+  isPublicTransport: boolean
   /** Painted registration digits, or "" if none were legible. */
   fleetNumber: string
   category: Category
@@ -66,8 +68,9 @@ function buildSystem(rows: CatalogRow[]): string {
     ...lines,
     '',
     'From the photo:',
-    '1. Read the painted evidenční číslo (fleet registration number) if any digits are clearly legible — digits only, no spaces.',
-    "2. Identify the most likely catalog model(s) by the vehicle's appearance. Use only shortName values from the catalog, most-likely first, at most 3. If two visually near-identical variants are plausible, include both.",
+    '1. Decide whether it actually shows a Prague public-transport vehicle (tram, bus, metro, trolleybus, or train). If it shows anything else (a person, animal, car, building, scenery, a screenshot, etc.), set isPublicTransport to false, fleetNumber to "", and candidates to an empty array.',
+    '2. Read the painted evidenční číslo (fleet registration number) if any digits are clearly legible — digits only, no spaces.',
+    "3. Identify the most likely catalog model(s) by the vehicle's appearance. Use only shortName values from the catalog, most-likely first, at most 3. If two visually near-identical variants are plausible, include both.",
     'Always call report_vehicle. If no number is legible, set fleetNumber to "".',
   ].join('\n')
 }
@@ -97,6 +100,10 @@ export async function recognizeVehicle(buffer: Buffer, mime: string): Promise<Re
           type: 'object',
           additionalProperties: false,
           properties: {
+            isPublicTransport: {
+              type: 'boolean',
+              description: 'True only if the photo shows a Prague public-transport vehicle.',
+            },
             fleetNumber: {
               type: 'string',
               description: 'Painted registration digits, or "" if not legible.',
@@ -116,7 +123,7 @@ export async function recognizeVehicle(buffer: Buffer, mime: string): Promise<Re
               },
             },
           },
-          required: ['fleetNumber', 'category', 'candidates'],
+          required: ['isPublicTransport', 'fleetNumber', 'category', 'candidates'],
         },
       },
     ],
@@ -144,6 +151,9 @@ export async function recognizeVehicle(buffer: Buffer, mime: string): Promise<Re
   const input = block.input as Partial<RecognizeResult>
 
   return {
+    // Default to true if the model omits it, so a missing field never blocks a
+    // genuine catch — only an explicit `false` rejects the photo.
+    isPublicTransport: input.isPublicTransport !== false,
     fleetNumber: typeof input.fleetNumber === 'string' ? input.fleetNumber.replace(/\D/g, '') : '',
     category: (input.category ?? 'tram') as Category,
     candidates: Array.isArray(input.candidates)

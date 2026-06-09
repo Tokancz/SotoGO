@@ -10,6 +10,7 @@ import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgVehicleCard from '@/components/game/SgVehicleCard.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import SgConfirmDialog from '@/components/ui/SgConfirmDialog.vue'
 import { useDialog } from '@/composables/useDialog'
 
 const game = useGameStore()
@@ -45,14 +46,15 @@ const stars: Record<Rarity, string> = {
 const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
 const detailPhoto = computed(() => (detail.value ? game.collectedPhotos[detail.value.id] : undefined))
 
+const confirmDelete = ref(false)
 const deleting = ref(false)
-async function deleteDetail() {
+async function performDelete() {
   const v = detail.value
   if (!v || deleting.value) return
-  if (!confirm(`Opravdu odstranit ${v.shortName} z parku?`)) return
   deleting.value = true
   try {
     await game.removeVehicle(v.id)
+    confirmDelete.value = false
     detail.value = null
   } catch (err) {
     console.error('Odstranění vozidla selhalo:', err)
@@ -154,12 +156,24 @@ const previewStyle = computed(() =>
             <SgStatTile :value="detail.operator" label="Dopravce" color="var(--brand)" icon="award" />
           </div>
           <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }}</div>
-          <button class="sheet__delete" :disabled="deleting" @click="deleteDetail">
-            <SgIcon name="trash-2" :size="16" />{{ deleting ? 'Odstraňuji…' : 'Odstranit z parku' }}
+          <button class="sheet__delete" :disabled="deleting" @click="confirmDelete = true">
+            <SgIcon name="trash-2" :size="16" />Odstranit z parku
           </button>
         </div>
       </div>
     </Teleport>
+
+    <SgConfirmDialog
+      v-if="confirmDelete && detail"
+      :title="`Odstranit ${detail.shortName}?`"
+      message="Vozidlo i jeho fotka se odeberou z parku a přijdeš o získané XP."
+      confirm-label="Odstranit"
+      icon="trash-2"
+      danger
+      :loading="deleting"
+      @confirm="performDelete"
+      @cancel="confirmDelete = false"
+    />
   </div>
 </template>
 

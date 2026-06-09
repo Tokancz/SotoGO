@@ -12,6 +12,8 @@ export interface RecognizeCandidate {
 }
 
 export interface RecognizeResult {
+  /** Whether the photo actually shows a Prague public-transport vehicle. */
+  isPublicTransport: boolean
   /** Painted registration digits, or "" if none were legible. */
   fleetNumber: string
   category: CategoryKey

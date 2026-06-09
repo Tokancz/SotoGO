@@ -89,6 +89,38 @@ meRouter.get(
   }),
 )
 
+// DELETE /api/me/progress — wipe the player's progress: collected vehicles (and
+// their photos), visited stops, quest claims/completions, and reset XP/level/
+// streak to zero. The account itself stays. For testing and a "start over"
+// option; irreversible, so the client gates it behind a confirmation.
+meRouter.delete(
+  '/progress',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+
+    const del = await pool.query<{ image_url: string | null }>(
+      'delete from user_vehicles where user_id = $1 returning image_url',
+      [userId],
+    )
+    await Promise.all([
+      pool.query('delete from user_stops where user_id = $1', [userId]),
+      pool.query('delete from user_quest_claims where user_id = $1', [userId]),
+      pool.query('delete from user_quest_completions where user_id = $1', [userId]),
+    ])
+
+    const { rows } = await pool.query<UserRow>(
+      `update users set xp = 0, level = 1, streak_count = 0, last_active_date = null
+       where id = $1 returning *`,
+      [userId],
+    )
+
+    // Best-effort cleanup of the stored catch photos (the rows are already gone).
+    await Promise.all(del.rows.map((r) => deleteImage(r.image_url)))
+
+    res.json({ user: publicUser(rows[0]), collectedIds: [], visitedIds: [] })
+  }),
+)
+
 // POST /api/me/vehicles — record a catch; award XP if it's new. Accepts
 // multipart/form-data: a `vehicleId` field and an optional `photo` image.
 meRouter.post(
@@ -155,6 +187,62 @@ meRouter.delete(
   }),
 )
 
+// GET /api/me/leaderboard — top players by XP, plus the caller's own rank so it
+// can be pinned when they're outside the top slice. Ranking is xp desc, then id
+// asc as a stable tiebreak (matches the rank-count query below).
+const LEADERBOARD_LIMIT = 100
+
+interface LeaderRow {
+  id: string
+  username: string
+  avatar_url: string | null
+  level: number
+  xp: number
+}
+
+function leaderEntry(u: LeaderRow, rank: number) {
+  return {
+    rank,
+    id: String(u.id),
+    username: u.username,
+    avatarUrl: u.avatar_url,
+    level: u.level,
+    xp: u.xp,
+  }
+}
+
+meRouter.get(
+  '/leaderboard',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const me = (
+      await pool.query<LeaderRow>(
+        'select id, username, avatar_url, level, xp from users where id = $1',
+        [userId],
+      )
+    ).rows[0]
+
+    const [top, totalRes, rankRes] = await Promise.all([
+      pool.query<LeaderRow>(
+        `select id, username, avatar_url, level, xp from users
+         order by xp desc, id asc limit $1`,
+        [LEADERBOARD_LIMIT],
+      ),
+      pool.query<{ n: number }>('select count(*)::int n from users'),
+      pool.query<{ r: number }>(
+        'select count(*)::int + 1 r from users where xp > $1 or (xp = $1 and id < $2)',
+        [me.xp, me.id],
+      ),
+    ])
+
+    res.json({
+      total: totalRes.rows[0].n,
+      me: leaderEntry(me, rankRes.rows[0].r),
+      entries: top.rows.map((u, i) => leaderEntry(u, i + 1)),
+    })
+  }),
+)
+
 // POST /api/me/stops/:id/visit — record a visit; award XP if it's new.
 meRouter.post(
   '/stops/:id/visit',
@@ -211,6 +299,24 @@ async function questProgress(userId: string, since: Date, q: QuestTemplate): Pro
   return rows[0]?.n ?? 0
 }
 
+/** Quest ids the player has already completed this period (latched — can't regress). */
+async function questCompletions(userId: string, period: number): Promise<Set<string>> {
+  const { rows } = await pool.query<{ quest_id: string }>(
+    'select quest_id from user_quest_completions where user_id = $1 and period = $2',
+    [userId, period],
+  )
+  return new Set(rows.map((r) => r.quest_id))
+}
+
+/** Record that a quest hit its target this period. Idempotent. */
+async function latchCompletion(userId: string, period: number, questId: string): Promise<void> {
+  await pool.query(
+    `insert into user_quest_completions (user_id, period, quest_id) values ($1, $2, $3)
+     on conflict do nothing`,
+    [userId, period, questId],
+  )
+}
+
 // GET /api/me/quests — this period's per-player quest set, with live progress.
 meRouter.get(
   '/quests',
@@ -224,20 +330,28 @@ meRouter.get(
       [userId, period.index],
     )
     const claimed = new Set(claims.rows.map((r) => r.quest_id))
+    const completed = await questCompletions(userId, period.index)
 
     const since = new Date(period.startMs)
     const quests = await Promise.all(
       templates.map(async (t) => {
         const value = await questProgress(userId, since, t)
+        // Latch completion the first time progress reaches target, so it stays
+        // done even if the player later removes a vehicle (decrementing `value`).
+        if (value >= t.target && !completed.has(t.id)) {
+          await latchCompletion(userId, period.index, t.id)
+          completed.add(t.id)
+        }
+        const done = completed.has(t.id)
         return {
           id: t.id,
           title: t.title,
           category: t.category,
           icon: t.icon,
-          value: Math.min(value, t.target),
+          value: done ? t.target : Math.min(value, t.target),
           max: t.target,
           reward: t.reward,
-          done: value >= t.target,
+          done,
           claimed: claimed.has(t.id),
         }
       }),
@@ -258,10 +372,14 @@ meRouter.post(
     const inSet = template && questsFor(userId, period.index).some((t) => t.id === template.id)
     if (!template || !inSet) return res.status(404).json({ error: 'Výzva nenalezena.' })
 
+    // Completed if live progress is at target, or it was latched earlier this
+    // period (so removing a vehicle afterward doesn't block an earned claim).
     const value = await questProgress(userId, new Date(period.startMs), template)
-    if (value < template.target) {
+    const done = value >= template.target || (await questCompletions(userId, period.index)).has(template.id)
+    if (!done) {
       return res.status(400).json({ error: 'Výzva ještě není splněná.' })
     }
+    if (value >= template.target) await latchCompletion(userId, period.index, template.id)
 
     // The claims row is the source of truth — inserting it is what prevents a
     // second payout (no row inserted ⇒ already claimed ⇒ award nothing).
