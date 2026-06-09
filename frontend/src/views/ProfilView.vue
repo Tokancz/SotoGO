@@ -25,6 +25,10 @@ function logout() {
 }
 
 const reportOpen = ref(false)
+
+// Build stamp (commit + date), injected at build time — handy for telling at a
+// glance whether a deployed build already includes a given feature.
+const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
 </script>
 
 <template>
@@ -102,6 +106,8 @@ const reportOpen = ref(false)
           <span class="settings__label">Odhlásit se</span>
         </button>
       </div>
+
+      <p class="version">verze {{ appVersion }}</p>
     </div>
 
     <Teleport to=".app-shell">
@@ -200,5 +206,14 @@ const reportOpen = ref(false)
   color: var(--danger-500);
   .settings__label { color: var(--danger-500); }
   &:hover { background: var(--surface-sunken); }
+}
+
+.version {
+  margin: 16px 2px 0;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: text;
 }
 </style>
