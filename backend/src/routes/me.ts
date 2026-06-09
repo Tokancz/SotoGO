@@ -56,12 +56,26 @@ async function collectedIds(userId: string): Promise<string[]> {
   return rows.map((r) => String(r.vehicle_type_id))
 }
 
-async function visitedIds(userId: string): Promise<string[]> {
-  const { rows } = await pool.query(
-    'select stop_id from user_stops where user_id = $1 order by visited_at desc',
+interface VisitedStops {
+  /** Unique visited stop ids, most recent first. */
+  ids: string[]
+  /** stopId → ISO timestamp of the player's most recent visit (drives the re-visit cooldown). */
+  visitedAt: Record<string, string>
+}
+
+async function visitedStops(userId: string): Promise<VisitedStops> {
+  const { rows } = await pool.query<{ stop_id: string; visited_at: string }>(
+    'select stop_id, visited_at from user_stops where user_id = $1 order by visited_at desc',
     [userId],
   )
-  return rows.map((r) => String(r.stop_id))
+  const ids: string[] = []
+  const visitedAt: Record<string, string> = {}
+  for (const r of rows) {
+    const id = String(r.stop_id)
+    ids.push(id)
+    visitedAt[id] = new Date(r.visited_at).toISOString()
+  }
+  return { ids, visitedAt }
 }
 
 /** Map of collected vehicle id → the player's catch photo (only those with one). */
@@ -82,10 +96,10 @@ meRouter.get(
     const userId = req.userId!
     const [collected, visited, photos] = await Promise.all([
       collectedIds(userId),
-      visitedIds(userId),
+      visitedStops(userId),
       collectedPhotos(userId),
     ])
-    res.json({ collectedIds: collected, visitedIds: visited, photos })
+    res.json({ collectedIds: collected, visitedIds: visited.ids, visitedAt: visited.visitedAt, photos })
   }),
 )
 
@@ -243,7 +257,15 @@ meRouter.get(
   }),
 )
 
-// POST /api/me/stops/:id/visit — record a visit; award XP if it's new.
+// XP for re-visiting a stop you've already collected (much less than the first
+// visit), and how long before a visited stop can be checked in again.
+const REVISIT_XP = 10
+const VISIT_COOLDOWN_MS = 30 * 60_000
+
+// POST /api/me/stops/:id/visit — check in at a stop. First visit awards the full
+// stop reward; a re-visit awards a small flat bonus, but only once the cooldown
+// has elapsed (otherwise 409 with when it'll be available again). The visit time
+// is stored so the client can show the cooldown state per stop.
 meRouter.post(
   '/stops/:id/visit',
   asyncHandler(async (req: AuthedRequest, res) => {
@@ -256,21 +278,40 @@ meRouter.post(
     )
     if (!stop.rowCount) return res.status(404).json({ error: 'Zastávka nenalezena.' })
 
-    const ins = await pool.query(
-      `insert into user_stops (user_id, stop_id) values ($1, $2)
-       on conflict do nothing returning stop_id`,
+    const prior = await pool.query<{ visited_at: string }>(
+      'select visited_at from user_stops where user_id = $1 and stop_id = $2',
       [userId, stopId],
     )
-    const awarded = ins.rowCount
-      ? stopReward(stop.rows[0].is_gym, stop.rows[0].categories)
-      : 0
 
-    const user = awarded
-      ? await awardXp(userId, awarded)
-      : (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
-    const ids = await visitedIds(userId)
+    let awarded: number
+    if (prior.rowCount) {
+      const lastMs = new Date(prior.rows[0].visited_at).getTime()
+      const elapsed = Date.now() - lastMs
+      if (elapsed < VISIT_COOLDOWN_MS) {
+        return res.status(409).json({
+          error: 'Tuto zastávku můžeš navštívit znovu až za chvíli.',
+          nextVisitAt: new Date(lastMs + VISIT_COOLDOWN_MS).toISOString(),
+        })
+      }
+      await pool.query(
+        'update user_stops set visited_at = now() where user_id = $1 and stop_id = $2',
+        [userId, stopId],
+      )
+      awarded = REVISIT_XP
+    } else {
+      await pool.query('insert into user_stops (user_id, stop_id) values ($1, $2)', [userId, stopId])
+      awarded = stopReward(stop.rows[0].is_gym, stop.rows[0].categories)
+    }
 
-    res.json({ user: publicUser(user), visitedIds: ids, awardedXp: awarded })
+    const user = await awardXp(userId, awarded)
+    const visited = await visitedStops(userId)
+
+    res.json({
+      user: publicUser(user),
+      visitedIds: visited.ids,
+      visitedAt: visited.visitedAt,
+      awardedXp: awarded,
+    })
   }),
 )
 

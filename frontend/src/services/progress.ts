@@ -25,9 +25,13 @@ export interface ApiQuest {
 export const progressApi = {
   get: () =>
     api
-      .get<{ collectedIds: string[]; visitedIds: string[]; photos: Record<string, string> }>(
-        '/me/progress',
-      )
+      .get<{
+        collectedIds: string[]
+        visitedIds: string[]
+        /** stopId → ISO timestamp of the most recent visit (for the re-visit cooldown). */
+        visitedAt: Record<string, string>
+        photos: Record<string, string>
+      }>('/me/progress')
       .then((r) => r.data),
 
   collectVehicle: (vehicleId: string, photo?: Blob | null) => {
@@ -62,7 +66,9 @@ export const progressApi = {
 
   visitStop: (stopId: string) =>
     api
-      .post<MutationResult & { visitedIds: string[] }>(`/me/stops/${stopId}/visit`)
+      .post<MutationResult & { visitedIds: string[]; visitedAt: Record<string, string> }>(
+        `/me/stops/${stopId}/visit`,
+      )
       .then((r) => r.data),
 
   // `date` is the client's LOCAL date (YYYY-MM-DD) so the streak's day

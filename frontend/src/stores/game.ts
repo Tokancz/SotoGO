@@ -26,8 +26,10 @@ interface State {
   /** The player's catch photo per collected vehicle id (absolute URL). */
   collectedPhotos: Record<string, string>
   stops: ApiStop[]
-  /** Stop ids the player has visited. */
+  /** Stop ids the player has visited (unique). */
   visitedIds: string[]
+  /** stopId → ISO timestamp of the most recent visit (drives the re-visit cooldown). */
+  visitedAt: Record<string, string>
   /** This period's daily quests (from the server). */
   quests: Quest[]
   /** When the current quest period ends (ISO), for the countdown. */
@@ -43,6 +45,7 @@ export const useGameStore = defineStore('game', {
     collectedPhotos: {},
     stops: [],
     visitedIds: [],
+    visitedAt: {},
     quests: [],
     questsEndsAt: null,
     catalogLoaded: false,
@@ -189,9 +192,10 @@ export const useGameStore = defineStore('game', {
       const auth = useAuthStore()
       if (!auth.isAuthenticated) return
       try {
-        const { collectedIds, visitedIds, photos } = await progressApi.get()
+        const { collectedIds, visitedIds, visitedAt, photos } = await progressApi.get()
         this.collectedIds = collectedIds
         this.visitedIds = visitedIds
+        this.visitedAt = visitedAt
         this.collectedPhotos = Object.fromEntries(
           Object.entries(photos).map(([id, path]) => [id, mediaUrl(path)!]),
         )
@@ -233,6 +237,7 @@ export const useGameStore = defineStore('game', {
       const res = await progressApi.resetProgress()
       this.collectedIds = res.collectedIds
       this.visitedIds = res.visitedIds
+      this.visitedAt = {}
       this.collectedPhotos = {}
       useAuthStore().setUser(res.user)
       void this.loadQuests()
@@ -244,16 +249,22 @@ export const useGameStore = defineStore('game', {
       if (v) await this.collectVehicle(v.id, photo)
     },
 
-    /** Persist a stop visit. XP is awarded server-side. */
-    async visitStop(id: string) {
-      if (this.visitedIds.includes(id)) return
+    /**
+     * Check in at a stop. First visit awards the full reward, a re-visit a small
+     * bonus; the server rejects re-visits during the cooldown. Returns the XP
+     * awarded, or null if the visit didn't go through (offline, on cooldown, …).
+     */
+    async visitStop(id: string): Promise<number | null> {
       try {
         const res = await progressApi.visitStop(id)
         this.visitedIds = res.visitedIds
+        this.visitedAt = res.visitedAt
         useAuthStore().setUser(res.user)
         void this.loadQuests() // a visit may have advanced a quest — refresh progress
+        return res.awardedXp
       } catch (err) {
         console.error('Uložení návštěvy selhalo:', err)
+        return null
       }
     },
 

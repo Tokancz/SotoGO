@@ -14,9 +14,14 @@ const geo = useGeolocation()
 
 const DEFAULT_LOC = { lat: 50.0865, lng: 14.4319 } // Prague centre — fallback only
 const VISIT_RADIUS_M = 75 // how close you must physically be to check in
-const RELOAD_DISTANCE_M = 3000 // refetch nearby stops after moving this far
-const LOAD_KM = 10 // radius of stops loaded around the player
-const MIN_ZOOM = 12 // don't let the user zoom out past the loaded area
+// Metro: GPS is poor underground and stations span several entrances (the stored
+// point is roughly their centre), so allow a wider check-in radius.
+const METRO_VISIT_RADIUS_M = 150
+const REVISIT_XP = 10 // a re-visit (after the cooldown) is worth a small flat bonus
+const VISIT_COOLDOWN_MS = 30 * 60_000 // can't re-check-in at the same stop until this elapses
+const RELOAD_DISTANCE_M = 1500 // refetch nearby stops after moving this far
+const LOAD_KM = 3 // radius of stops loaded around the player (kept small for mobile)
+const MIN_ZOOM = 13 // don't let the user zoom out past the loaded area
 
 const LINE_HEX: Record<string, string> = { A: '#00A562', B: '#F7A600', C: '#D9282F' }
 const CAT_HEX: Record<string, string> = {
@@ -57,6 +62,9 @@ let invalidateTimer: ReturnType<typeof setTimeout> | undefined
 
 const playerLoc = ref({ ...DEFAULT_LOC })
 const usingFallback = ref(false)
+// Ticks every 30s so cooldown countdowns + marker states re-evaluate over time.
+const now = ref(Date.now())
+let stateTimer: ReturnType<typeof setInterval> | undefined
 
 const noStopsNearby = ref(false)
 const noticeText = computed(() =>
@@ -108,6 +116,18 @@ function rewardFor(stop: ApiStop): number {
   return 20
 }
 
+// Per-stop check-in state: never visited, recently visited (on cooldown), or
+// visited but ready to check in again.
+type VisitState = 'new' | 'cooldown' | 'ready'
+function visitState(stop: ApiStop): VisitState {
+  const ts = game.visitedAt[stop.id]
+  if (!ts) return 'new'
+  return now.value - new Date(ts).getTime() < VISIT_COOLDOWN_MS ? 'cooldown' : 'ready'
+}
+function visitRadiusFor(stop: ApiStop): number {
+  return stop.categories.includes('metro') ? METRO_VISIT_RADIUS_M : VISIT_RADIUS_M
+}
+
 function lineColor(line: string): string {
   const cat = lineCats.value[line]
   if (cat) return CAT_HEX[cat] ?? 'var(--slate-500)'
@@ -120,23 +140,44 @@ const distanceMeters = computed(() =>
     : Infinity,
 )
 const distanceLabel = computed(() => (selected.value ? fmtDist(distanceMeters.value) : ''))
-const selectedVisited = computed(() =>
-  selected.value ? game.visitedSet.has(selected.value.id) : false,
+const selectedState = computed<VisitState>(() =>
+  selected.value ? visitState(selected.value) : 'new',
+)
+const selectedReward = computed(() =>
+  selected.value ? (selectedState.value === 'ready' ? REVISIT_XP : rewardFor(selected.value)) : 0,
 )
 const canVisit = computed(
-  () => selected.value != null && !selectedVisited.value && distanceMeters.value <= VISIT_RADIUS_M,
+  () =>
+    selected.value != null &&
+    selectedState.value !== 'cooldown' &&
+    distanceMeters.value <= visitRadiusFor(selected.value),
 )
+// Minutes until the selected stop can be checked in again (only on cooldown).
+const cooldownLabel = computed(() => {
+  if (!selected.value || selectedState.value !== 'cooldown') return ''
+  const ts = game.visitedAt[selected.value.id]
+  const leftMs = Math.max(0, VISIT_COOLDOWN_MS - (now.value - new Date(ts).getTime()))
+  return `${Math.max(1, Math.ceil(leftMs / 60_000))} min`
+})
+
+function stateClass(state: VisitState): string {
+  return state === 'cooldown'
+    ? ' sg-stop-pin--cooldown'
+    : state === 'ready'
+      ? ' sg-stop-pin--ready'
+      : ''
+}
 
 function addMarker(stop: ApiStop): L.Marker {
   const { color, label } = pinStyle(stop)
-  const visited = game.visitedSet.has(stop.id) ? ' sg-stop-pin--visited' : ''
   const gym = stop.isGym ? ' sg-stop-pin--gym' : ''
   const icon = L.divIcon({
     className: '',
     iconSize: [34, 42],
     iconAnchor: [17, 42],
-    html: `<div class="sg-stop-pin${gym}${visited}" style="--pin:${color}">
+    html: `<div class="sg-stop-pin${gym}${stateClass(visitState(stop))}" style="--pin:${color}">
              <div class="sg-stop-pin__head"><span>${label}</span></div>
+             <div class="sg-stop-pin__badge"></div>
            </div>`,
   })
   const marker = L.marker([stop.lat, stop.lng], { icon })
@@ -144,6 +185,19 @@ function addMarker(stop: ApiStop): L.Marker {
   marker.on('click', () => selectStop(stop))
   markersById[stop.id] = marker
   return marker
+}
+
+/** Re-apply a pin's visit-state class (after a visit, or as cooldowns elapse). */
+function applyState(stop: ApiStop) {
+  const el = markersById[stop.id]?.getElement()?.querySelector<HTMLElement>('.sg-stop-pin')
+  if (!el) return
+  el.classList.remove('sg-stop-pin--cooldown', 'sg-stop-pin--ready')
+  const cls = stateClass(visitState(stop)).trim()
+  if (cls) el.classList.add(cls)
+}
+
+function refreshMarkerStates() {
+  for (const stop of game.stops) applyState(stop)
 }
 
 function renderStops() {
@@ -310,11 +364,17 @@ onMounted(() => {
   })
   invalidateTimer = setTimeout(() => m.invalidateSize(), 60)
   geo.start()
+  // Advance cooldown countdowns + flip pins from "cooldown" to "ready" over time.
+  stateTimer = setInterval(() => {
+    now.value = Date.now()
+    refreshMarkerStates()
+  }, 30_000)
 })
 
 onBeforeUnmount(() => {
   destroyed = true
   clearTimeout(invalidateTimer)
+  clearInterval(stateTimer)
   geo.stop()
   map.value?.remove()
   map.value = null
@@ -328,8 +388,11 @@ function recenter() {
 async function visitSelected() {
   const stop = selected.value
   if (!stop || !canVisit.value) return
-  await game.visitStop(stop.id)
-  markersById[stop.id]?.getElement()?.firstElementChild?.classList.add('sg-stop-pin--visited')
+  const awarded = await game.visitStop(stop.id)
+  if (awarded != null) {
+    now.value = Date.now() // the stop is now on cooldown
+    applyState(stop)
+  }
 }
 </script>
 
@@ -375,8 +438,9 @@ async function visitSelected() {
       <SgIcon name="navigation" :size="14" /> {{ noticeText }}
     </div>
 
-    <!-- Locate FAB -->
-    <button class="locate" aria-label="Moje poloha" @click="recenter">
+    <!-- Locate FAB — sits in the bottom-right corner, lifting above the stop
+         sheet when one is open so it never overlaps it. -->
+    <button class="locate" :class="{ 'locate--raised': selected }" aria-label="Moje poloha" @click="recenter">
       <SgIcon name="locate-fixed" :size="22" />
     </button>
 
@@ -401,10 +465,13 @@ async function visitSelected() {
           </div>
         </div>
         <div class="stopsheet__action">
-          <SgBadge v-if="selectedVisited" tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
-          <button v-else-if="canVisit" class="stopsheet__reward" @click="visitSelected">
-            <SgIcon name="zap" :size="16" />+{{ rewardFor(selected) }} XP
+          <button v-if="canVisit" class="stopsheet__reward" @click="visitSelected">
+            <SgIcon :name="selectedState === 'ready' ? 'rotate-ccw' : 'zap'" :size="16" />+{{ selectedReward }} XP
           </button>
+          <div v-else-if="selectedState === 'cooldown'" class="stopsheet__cooldown">
+            <SgBadge tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
+            <span class="stopsheet__cooldownleft">Znovu za {{ cooldownLabel }}</span>
+          </div>
           <span v-else class="stopsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
         </div>
       </section>
@@ -521,7 +588,7 @@ async function visitSelected() {
 .locate {
   position: absolute;
   right: 14px;
-  bottom: 118px;
+  bottom: 24px; // bottom-right corner when no stop sheet is open
   width: 46px;
   height: 46px;
   border-radius: 50%;
@@ -532,9 +599,12 @@ async function visitSelected() {
   @include flex-center;
   cursor: pointer;
   z-index: 5;
+  transition: bottom 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 
   &:active { transform: scale(0.94); }
 }
+// Lift above the stop sheet while one is shown.
+.locate--raised { bottom: 118px; }
 
 .stopsheet { position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5; }
 .stopsheet__panel {
@@ -606,4 +676,6 @@ async function visitSelected() {
   border-radius: 999px;
   flex: none;
 }
+.stopsheet__cooldown { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; flex: none; }
+.stopsheet__cooldownleft { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 </style>
