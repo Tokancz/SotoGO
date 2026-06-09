@@ -401,7 +401,15 @@ onBeforeUnmount(() => {
   clearTimeout(invalidateTimer)
   clearInterval(stateTimer)
   geo.stop()
-  map.value?.remove()
+  // Cancel any in-flight pan/zoom first, then tear down. Leaflet can throw
+  // ("parentNode of null") if it's removed mid-animation — swallow it so a
+  // teardown error never blocks Vue's unmount and freezes navigation.
+  try {
+    map.value?.stop()
+    map.value?.remove()
+  } catch {
+    /* map is going away regardless */
+  }
   map.value = null
 })
 
