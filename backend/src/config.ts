@@ -29,6 +29,11 @@ export const config = {
   // Optional: GitHub token + repo ("owner/name") for the in-app bug reporter.
   githubToken: process.env.GITHUB_TOKEN ?? '',
   githubRepo: process.env.GITHUB_REPO ?? '',
+  // Optional: Anthropic API key for photo-based vehicle recognition (the capture
+  // flow's /api/recognize). Empty → the endpoint reports it's unconfigured and
+  // the client falls back to the manual model picker.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  recognizeModel: process.env.RECOGNIZE_MODEL ?? 'claude-haiku-4-5',
   // Catch-photo uploads. When S3 (below) is configured, photos go to the bucket
   // and survive restarts/redeploys; otherwise they're written to this local dir
   // and served at /uploads (fine for dev, ephemeral on most hosts).

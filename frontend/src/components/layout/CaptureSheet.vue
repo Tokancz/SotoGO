@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
-import { useCamera, type CropRect } from '@/composables/useCamera'
+import { useCamera } from '@/composables/useCamera'
 import { useDialog } from '@/composables/useDialog'
-import { recognizeFleetNumber, warmUpOcr } from '@/lib/ocr'
 import { downscaleCanvas, downscaleImageFile } from '@/lib/image'
-import { guessCategory, resolveFleetNumber } from '@/data/fleet'
+import { resolveFleetNumber } from '@/data/fleet'
+import { recognizeApi, type RecognizeResult } from '@/services/recognize'
 import type { CatalogVehicle, CategoryKey } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
@@ -24,10 +24,6 @@ const phase = ref<Phase>('aim')
 const videoEl = ref<HTMLVideoElement | null>(null)
 const corners = ['nw', 'ne', 'sw', 'se'] as const
 
-// On-screen reticle as a normalized crop of the frame — keep in sync with the
-// .capture__reticle box so OCR reads exactly what the player framed.
-const RETICLE: CropRect = { x: 0.13, y: 0.36, w: 0.74, h: 0.2 }
-
 const stillUrl = ref('')
 // The downscaled catch photo to upload (capped + re-encoded; see @/lib/image).
 const photoBlob = ref<Blob | null>(null)
@@ -38,8 +34,10 @@ const scanError = ref(false)
 const matched = ref<CatalogVehicle | null>(null)
 const reward = 100 // CATCH_XP — flat, awarded server-side on a new catch.
 
-// Manual-confirm picker state (used when OCR can't auto-resolve the model).
+// Manual-confirm picker state (used when recognition can't auto-resolve the model).
 const pickerCat = ref<CategoryKey>('tram')
+// Catalog ids the vision model flagged as likely — surfaced first in the picker.
+const candidateIds = ref<string[]>([])
 
 const saving = ref(false)
 const saveError = ref(false)
@@ -48,19 +46,20 @@ const cat = computed(() => (matched.value ? game.cats[matched.value.category] : 
 const alreadyHave = computed(() =>
   matched.value ? game.collectedSet.has(matched.value.id) : false,
 )
-const pickerList = computed(() => game.catalog.filter((v) => v.category === pickerCat.value))
+const pickerList = computed(() => {
+  const inCat = game.catalog.filter((v) => v.category === pickerCat.value)
+  if (!candidateIds.value.length) return inCat
+  // Float the recognizer's guesses to the top, preserving their order.
+  const rank = new Map(candidateIds.value.map((id, i) => [id, i]))
+  return [...inCat].sort(
+    (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+  )
+})
 
 onMounted(async () => {
   game.ensureCatalog()
   await nextTick()
   if (videoEl.value) await camera.start(videoEl.value)
-  // Warm the OCR worker in the background while the user frames the shot, so the
-  // first scan isn't a cold download. Deferred so it never competes with camera
-  // startup or the open animation.
-  const warm = () => warmUpOcr()
-  const ric = (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
-  if (ric) ric(warm)
-  else window.setTimeout(warm, 400)
 })
 
 onBeforeUnmount(() => camera.stop())
@@ -69,63 +68,80 @@ function findModel(category: CategoryKey, shortName: string): CatalogVehicle | u
   return game.catalog.find((v) => v.category === category && v.shortName === shortName)
 }
 
-/** Route a recognized number to a reward (auto-resolved) or the confirm picker. */
-function applyNumber(number: string | null) {
+// A single, clearly-best visual guess auto-resolves to the reward; anything
+// less confident drops into the picker (pre-filtered + candidates floated up),
+// so we never silently pick the wrong near-identical variant.
+const AUTO_ACCEPT_CONFIDENCE = 0.85
+
+/**
+ * Hybrid resolution: the painted fleet number wins when legible (authoritative
+ * via the DPP ranges); otherwise fall back to the model's visual candidates.
+ */
+function applyRecognition(result: RecognizeResult) {
+  const number = result.fleetNumber || null
   recognizedNumber.value = number
+
   if (number) {
-    const n = Number(number)
-    const hit = resolveFleetNumber(n)
+    const hit = resolveFleetNumber(Number(number))
     const model = hit ? findModel(hit.category, hit.shortName) : undefined
     if (model) {
       matched.value = model
       phase.value = 'reward'
       return
     }
-    pickerCat.value = guessCategory(n) ?? 'tram'
-  } else {
-    pickerCat.value = 'tram'
   }
+
+  // No authoritative number — use the visual guesses.
+  const candModels = result.candidates
+    .map((c) => findModel(result.category, c.shortName) ?? game.catalog.find((v) => v.shortName === c.shortName))
+    .filter((v): v is CatalogVehicle => v != null)
+
+  pickerCat.value = candModels[0]?.category ?? result.category
+  candidateIds.value = candModels.map((v) => v.id)
+
+  const top = result.candidates[0]
+  if (candModels[0] && top && top.confidence >= AUTO_ACCEPT_CONFIDENCE && result.candidates.length === 1) {
+    matched.value = candModels[0]
+    phase.value = 'reward'
+    return
+  }
+
   phase.value = 'confirm'
+}
+
+async function scan(photo: Blob) {
+  phase.value = 'scan'
+  scanError.value = false
+  candidateIds.value = []
+  try {
+    applyRecognition(await recognizeApi.recognize(photo))
+  } catch (err) {
+    // Recognition unavailable (no API key, offline, error) — fall back to the
+    // manual picker rather than losing the catch.
+    console.error('Rozpoznávání selhalo:', err)
+    scanError.value = true
+    phase.value = 'confirm'
+  }
 }
 
 async function capture() {
   if (!videoEl.value || !camera.active.value) return
-  // Grab frames before releasing the camera: full frame for the saved photo,
-  // the reticle crop for OCR.
   const full = camera.captureCanvas(videoEl.value)
   stillUrl.value = full.toDataURL('image/jpeg', 0.8)
-  photoBlob.value = await downscaleCanvas(full)
-  const crop = camera.captureCanvas(videoEl.value, RETICLE)
+  const photo = await downscaleCanvas(full)
+  photoBlob.value = photo
   camera.stop()
-  phase.value = 'scan'
-  scanError.value = false
-  try {
-    const { number } = await recognizeFleetNumber(crop)
-    applyNumber(number)
-  } catch (err) {
-    console.error('OCR selhalo:', err)
-    scanError.value = true
-    phase.value = 'confirm'
-  }
+  if (photo) await scan(photo)
 }
 
-/** Fallback path: OCR a photo from the native file/camera input. */
+/** Fallback path: recognize a photo from the native file/camera input. */
 async function onFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   stillUrl.value = URL.createObjectURL(file)
-  phase.value = 'scan'
-  scanError.value = false
-  try {
-    // OCR reads the original file; only the uploaded copy gets downscaled.
-    photoBlob.value = await downscaleImageFile(file)
-    const { number } = await recognizeFleetNumber(file)
-    applyNumber(number)
-  } catch (err) {
-    console.error('OCR selhalo:', err)
-    scanError.value = true
-    phase.value = 'confirm'
-  }
+  const photo = await downscaleImageFile(file)
+  photoBlob.value = photo
+  await scan(photo)
 }
 
 function chooseModel(v: CatalogVehicle) {
@@ -140,6 +156,7 @@ async function restart() {
   saveError.value = false
   stillUrl.value = ''
   photoBlob.value = null
+  candidateIds.value = []
   phase.value = 'aim'
   await nextTick()
   if (videoEl.value) await camera.start(videoEl.value)
