@@ -18,7 +18,7 @@ const camera = useCamera()
 const rootEl = ref<HTMLElement | null>(null)
 useDialog(rootEl, { onClose: () => emit('close') })
 
-type Phase = 'aim' | 'scan' | 'confirm' | 'reward'
+type Phase = 'aim' | 'scan' | 'confirm' | 'reject' | 'reward'
 const phase = ref<Phase>('aim')
 
 const videoEl = ref<HTMLVideoElement | null>(null)
@@ -78,6 +78,13 @@ const AUTO_ACCEPT_CONFIDENCE = 0.85
  * via the DPP ranges); otherwise fall back to the model's visual candidates.
  */
 function applyRecognition(result: RecognizeResult) {
+  // The model judged the photo not to be a public-transport vehicle — don't let
+  // a random picture count as a catch.
+  if (!result.isPublicTransport) {
+    phase.value = 'reject'
+    return
+  }
+
   const number = result.fleetNumber || null
   recognizedNumber.value = number
 
@@ -286,6 +293,20 @@ async function addToPark() {
 
       <div class="capture__actions">
         <SgButton variant="secondary" size="lg" full-width leading-icon="rotate-ccw" @click="restart">
+          Zkusit znovu
+        </SgButton>
+      </div>
+    </div>
+
+    <!-- REJECT: the photo isn't a public-transport vehicle -->
+    <div v-else-if="phase === 'reject'" class="capture__reject">
+      <div class="capture__reject-icon"><SgIcon name="image-off" :size="44" /></div>
+      <div class="capture__reject-title">Tohle nevypadá jako vozidlo</div>
+      <p class="capture__reject-sub">
+        Na fotce jsme nenašli žádné pražské MHD vozidlo. Vyfoť tramvaj, autobus, metro, trolejbus nebo vlak.
+      </p>
+      <div class="capture__actions">
+        <SgButton variant="primary" size="lg" full-width leading-icon="rotate-ccw" @click="restart">
           Zkusit znovu
         </SgButton>
       </div>
@@ -561,6 +582,42 @@ async function addToPark() {
   font-size: 13px;
   color: #ff8a80;
   margin-bottom: 14px;
+}
+
+.capture__reject {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 28px 30px;
+  text-align: center;
+  color: #fff;
+}
+.capture__reject .capture__actions { width: 100%; }
+.capture__reject-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  color: var(--text-on-night-muted);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.capture__reject-title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: 21px;
+}
+.capture__reject-sub {
+  margin-top: 10px;
+  max-width: 300px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-on-night-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {
