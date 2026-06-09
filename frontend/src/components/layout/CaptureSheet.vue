@@ -40,6 +40,9 @@ const reward = 100 // CATCH_XP — flat, awarded server-side on a new catch.
 // Manual-confirm picker state (used when OCR can't auto-resolve the model).
 const pickerCat = ref<CategoryKey>('tram')
 
+const saving = ref(false)
+const saveError = ref(false)
+
 const cat = computed(() => (matched.value ? game.cats[matched.value.category] : null))
 const alreadyHave = computed(() =>
   matched.value ? game.collectedSet.has(matched.value.id) : false,
@@ -125,6 +128,7 @@ async function restart() {
   recognizedNumber.value = null
   matched.value = null
   scanError.value = false
+  saveError.value = false
   stillUrl.value = ''
   photoBlob.value = null
   phase.value = 'aim'
@@ -133,8 +137,19 @@ async function restart() {
 }
 
 async function addToPark() {
-  if (!matched.value) return
-  await game.collectVehicle(matched.value.id, photoBlob.value)
+  if (!matched.value || saving.value) return
+  saving.value = true
+  saveError.value = false
+  try {
+    await game.collectVehicle(matched.value.id, photoBlob.value)
+  } catch (err) {
+    // Keep the sheet open so the catch isn't lost — let the player retry.
+    console.error('Uložení úlovku selhalo:', err)
+    saveError.value = true
+    return
+  } finally {
+    saving.value = false
+  }
   emit('caught')
   emit('close')
 }
@@ -261,8 +276,18 @@ async function addToPark() {
       </div>
       <div class="capture__sub">{{ cat?.label }} · {{ matched?.operator }}</div>
       <div v-if="!alreadyHave" class="capture__xp"><SgIcon name="zap" :size="20" /> +{{ reward }} XP</div>
-      <SgButton variant="reward" size="lg" full-width leading-icon="plus" @click="addToPark">
-        {{ alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
+      <div v-if="saveError" class="capture__saveerror">
+        <SgIcon name="triangle-alert" :size="15" /> Uložení se nezdařilo. Zkus to znovu.
+      </div>
+      <SgButton
+        variant="reward"
+        size="lg"
+        full-width
+        :leading-icon="saving ? undefined : 'plus'"
+        :disabled="saving"
+        @click="addToPark"
+      >
+        {{ saving ? 'Ukládám…' : saveError ? 'Zkusit znovu' : alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
       </SgButton>
     </div>
   </div>
@@ -473,6 +498,14 @@ async function addToPark() {
   padding: 8px 18px;
   border-radius: var(--radius-pill);
   margin-bottom: 30px;
+}
+.capture__saveerror {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #ff8a80;
+  margin-bottom: 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {

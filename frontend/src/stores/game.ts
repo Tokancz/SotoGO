@@ -10,13 +10,13 @@
 // until their backend exists. Category UI metadata (CATS) is design data.
 
 import { defineStore } from 'pinia'
-import type { Achievement, ApiStop, CatalogVehicle, CategoryKey, Player } from '@/types/game'
+import type { Achievement, ApiStop, CatalogVehicle, CategoryKey, Player, Quest } from '@/types/game'
 import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
 import { catalogApi } from '@/services/catalog'
 import { progressApi } from '@/services/progress'
 import { mediaUrl } from '@/services/api'
-import { CATS, CHALLENGES } from '@/data/seed'
+import { CATS } from '@/data/seed'
 
 interface State {
   cats: typeof CATS
@@ -28,7 +28,10 @@ interface State {
   stops: ApiStop[]
   /** Stop ids the player has visited. */
   visitedIds: string[]
-  challenges: typeof CHALLENGES
+  /** This period's daily quests (from the server). */
+  quests: Quest[]
+  /** When the current quest period ends (ISO), for the countdown. */
+  questsEndsAt: string | null
   catalogLoaded: boolean
 }
 
@@ -40,7 +43,8 @@ export const useGameStore = defineStore('game', {
     collectedPhotos: {},
     stops: [],
     visitedIds: [],
-    challenges: CHALLENGES.map((c) => ({ ...c, value: 0, done: false })),
+    quests: [],
+    questsEndsAt: null,
     catalogLoaded: false,
   }),
 
@@ -99,9 +103,12 @@ export const useGameStore = defineStore('game', {
       return p.xpMax === 0 ? 0 : Math.max(0, Math.min(100, (p.xp / p.xpMax) * 100))
     },
 
-    dailyDoneCount: (s) => s.challenges.filter((c) => c.done).length,
+    dailyDoneCount: (s) => s.quests.filter((q) => q.done).length,
+    /** Quests finished but whose reward hasn't been collected yet. */
+    dailyClaimable: (s) => s.quests.filter((q) => q.done && !q.claimed).length,
+    /** XP still collectable this period (rewards of quests not yet claimed). */
     dailyXpAvailable: (s) =>
-      s.challenges.filter((c) => !c.done).reduce((sum, c) => sum + c.reward, 0),
+      s.quests.filter((q) => !q.claimed).reduce((sum, q) => sum + q.reward, 0),
 
     /** Achievements computed live from real progress (collection + visits). */
     achievements(): Achievement[] {
@@ -114,20 +121,31 @@ export const useGameStore = defineStore('game', {
         desc: string,
         icon: string,
         tier: Achievement['tier'],
+        color: string,
         value: number,
         max: number,
-      ): Achievement => ({ title, desc, icon, tier, value, max, unlocked: max > 0 && value >= max })
+      ): Achievement => ({
+        title,
+        desc,
+        icon,
+        tier,
+        color,
+        value,
+        max,
+        unlocked: max > 0 && value >= max,
+      })
 
+      const C = this.cats
       return [
-        mk('První úlovek', 'Vyfoť 1. vozidlo', 'sparkles', 'common', found, 1),
-        mk('Sběratel', 'Ulov 10 modelů', 'layers', 'rare', found, 10),
-        mk('Mistr sbírky', 'Ulov 25 modelů', 'crown', 'epic', found, 25),
-        mk('Lovec tramvají', 'Všechny tramvaje', 'tram-front', 'epic', byCat.tram, catTotal.tram),
-        mk('Pán autobusů', 'Všechny autobusy', 'bus', 'rare', byCat.bus, catTotal.bus),
-        mk('Metro expert', 'Celé metro', 'train-front-tunnel', 'epic', byCat.metro, catTotal.metro),
-        mk('Cestovatel', 'Navštiv 5 zastávek', 'map-pin', 'common', visited, 5),
-        mk('Šotouš na cestách', 'Navštiv 50 zastávek', 'route', 'rare', visited, 50),
-        mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', found, this.totalAll),
+        mk('První úlovek', 'Vyfoť 1. vozidlo', 'sparkles', 'common', 'var(--xp)', found, 1),
+        mk('Sběratel', 'Ulov 10 modelů', 'layers', 'rare', 'var(--rarity-rare)', found, 10),
+        mk('Mistr sbírky', 'Ulov 25 modelů', 'crown', 'epic', 'var(--rarity-epic)', found, 25),
+        mk('Lovec tramvají', 'Všechny tramvaje', 'tram-front', 'epic', C.tram.color, byCat.tram, catTotal.tram),
+        mk('Pán autobusů', 'Všechny autobusy', 'bus', 'rare', C.bus.color, byCat.bus, catTotal.bus),
+        mk('Metro expert', 'Celé metro', 'train-front-tunnel', 'epic', C.metro.color, byCat.metro, catTotal.metro),
+        mk('Cestovatel', 'Navštiv 5 zastávek', 'map-pin', 'common', 'var(--brand)', visited, 5),
+        mk('Šotouš na cestách', 'Navštiv 50 zastávek', 'route', 'rare', C.trolley.color, visited, 50),
+        mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', 'var(--rarity-legendary)', found, this.totalAll),
       ]
     },
 
@@ -188,15 +206,14 @@ export const useGameStore = defineStore('game', {
      */
     async collectVehicle(id: string, photo?: Blob | null) {
       if (this.collectedIds.includes(id)) return
-      try {
-        const res = await progressApi.collectVehicle(id, photo)
-        this.collectedIds = res.collectedIds
-        const url = mediaUrl(res.imageUrl)
-        if (url) this.collectedPhotos = { ...this.collectedPhotos, [id]: url }
-        useAuthStore().setUser(res.user)
-      } catch (err) {
-        console.error('Uložení úlovku selhalo:', err)
-      }
+      // Note: errors propagate so the capture flow can surface them — a swallowed
+      // failure here means the catch is silently lost and never reaches the park.
+      const res = await progressApi.collectVehicle(id, photo)
+      this.collectedIds = res.collectedIds
+      const url = mediaUrl(res.imageUrl)
+      if (url) this.collectedPhotos = { ...this.collectedPhotos, [id]: url }
+      useAuthStore().setUser(res.user)
+      void this.loadQuests() // a catch may have advanced a quest — refresh progress
     },
 
     /** Collect by category + short name (what the OCR/capture flow knows). */
@@ -212,9 +229,43 @@ export const useGameStore = defineStore('game', {
         const res = await progressApi.visitStop(id)
         this.visitedIds = res.visitedIds
         useAuthStore().setUser(res.user)
+        void this.loadQuests() // a visit may have advanced a quest — refresh progress
       } catch (err) {
         console.error('Uložení návštěvy selhalo:', err)
       }
+    },
+
+    /** Load this period's daily quests with live progress. */
+    async loadQuests() {
+      const auth = useAuthStore()
+      if (!auth.isAuthenticated) return
+      try {
+        const { periodEndsAt, quests } = await progressApi.quests()
+        this.questsEndsAt = periodEndsAt
+        this.quests = quests.map((q) => ({
+          id: q.id,
+          title: q.title,
+          cat: q.category,
+          icon: q.icon,
+          value: q.value,
+          max: q.max,
+          reward: q.reward,
+          done: q.done,
+          claimed: q.claimed,
+        }))
+      } catch (err) {
+        console.error('Načtení výzev selhalo:', err)
+      }
+    },
+
+    /** Collect a completed quest's XP reward (once per period). */
+    async claimQuest(id: string) {
+      const quest = this.quests.find((q) => q.id === id)
+      if (!quest || !quest.done || quest.claimed) return
+      // Errors propagate so the view can surface them instead of losing the claim.
+      const res = await progressApi.claimQuest(id)
+      quest.claimed = true
+      useAuthStore().setUser(res.user)
     },
   },
 })

@@ -16,6 +16,8 @@ const props = withDefaults(
     description?: string
     icon?: string
     tier?: Rarity
+    /** Accent color override; falls back to the tier color. */
+    color?: string
     size?: number
     unlocked?: boolean
     value?: number
@@ -24,8 +26,19 @@ const props = withDefaults(
   { tier: 'legendary', size: 72, unlocked: false },
 )
 
-const color = computed(() => TIER[props.tier])
+const color = computed(() => props.color ?? TIER[props.tier])
 const showCount = computed(() => !props.unlocked && props.value != null && props.max != null)
+
+// Progress ring wrapping the medal rim (locked achievements with progress).
+const showRing = computed(() => showCount.value && (props.max ?? 0) > 0)
+const ringStroke = computed(() => Math.max(3, Math.round(props.size * 0.06)))
+const ringR = computed(() => (props.size - ringStroke.value) / 2)
+const ringCirc = computed(() => 2 * Math.PI * ringR.value)
+const ringOffset = computed(() => {
+  const max = props.max ?? 0
+  const pct = max > 0 ? Math.max(0, Math.min(1, (props.value ?? 0) / max)) : 0
+  return ringCirc.value * (1 - pct)
+})
 </script>
 
 <template>
@@ -35,6 +48,19 @@ const showCount = computed(() => !props.unlocked && props.value != null && props
     :style="{ '--_t': color, '--_sz': `${size}px` }"
   >
     <div class="sg-ach__medal">
+      <svg v-if="showRing" class="sg-ach__ring" :width="size" :height="size">
+        <circle class="sg-ach__ring-track" :cx="size / 2" :cy="size / 2" :r="ringR" :stroke-width="ringStroke" />
+        <circle
+          class="sg-ach__ring-fill"
+          :cx="size / 2"
+          :cy="size / 2"
+          :r="ringR"
+          :stroke-width="ringStroke"
+          :stroke="color"
+          :stroke-dasharray="ringCirc"
+          :stroke-dashoffset="ringOffset"
+        />
+      </svg>
       <SgIcon :name="unlocked ? (icon ?? 'award') : 'lock'" />
       <span v-if="unlocked" class="sg-ach__check"><SgIcon name="check" /></span>
       <span v-if="showCount" class="sg-ach__count">{{ value }}/{{ max }}</span>
@@ -62,7 +88,21 @@ const showCount = computed(() => !props.unlocked && props.value != null && props
   );
   box-shadow: inset 0 0 0 2.5px var(--_t), 0 6px 14px color-mix(in srgb, var(--_t) 28%, transparent);
   color: var(--_t);
-  svg { width: 44%; height: 44%; }
+  // The icon — scoped so it doesn't also shrink the progress-ring <svg>.
+  > svg:not(.sg-ach__ring) { width: 44%; height: 44%; }
+}
+.sg-ach__ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg); // start the arc at 12 o'clock
+  pointer-events: none;
+  overflow: visible;
+}
+.sg-ach__ring-track { fill: none; stroke: var(--surface-sunken); }
+.sg-ach__ring-fill {
+  fill: none;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .sg-ach__count {
   position: absolute;

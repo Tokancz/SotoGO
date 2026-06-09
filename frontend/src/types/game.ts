@@ -61,11 +61,30 @@ export interface Challenge {
   done: boolean;
 }
 
+/** A daily quest from GET /api/me/quests — progress is tracked server-side. */
+export interface Quest {
+  /** Stable template id, used to claim the reward. */
+  id: string;
+  title: string;
+  /** Related category (drives the accent color), or null for generic. */
+  cat: CategoryKey | null;
+  icon: string;
+  value: number;
+  max: number;
+  /** XP reward, awarded on claim. */
+  reward: number;
+  done: boolean;
+  /** Whether the reward has already been collected this period. */
+  claimed: boolean;
+}
+
 export interface Achievement {
   title: string;
   desc: string;
   icon: string;
   tier: Rarity;
+  /** Accent color (CSS value). Falls back to the tier color if unset. */
+  color?: string;
   unlocked?: boolean;
   value?: number;
   max?: number;

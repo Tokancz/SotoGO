@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgChallengeCard from '@/components/game/SgChallengeCard.vue'
@@ -6,18 +7,59 @@ import SgAchievementBadge from '@/components/game/SgAchievementBadge.vue'
 import SgIcon from '@/components/SgIcon.vue'
 
 const game = useGameStore()
+
+// Live "obnoví se za…" countdown to the end of the current quest period.
+const now = ref(Date.now())
+let ticker: ReturnType<typeof setInterval> | undefined
+
+const resetLabel = computed(() => {
+  if (!game.questsEndsAt) return ''
+  const ms = new Date(game.questsEndsAt).getTime() - now.value
+  if (ms <= 0) return 'Obnovuje se…'
+  const totalMin = Math.floor(ms / 60000)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return h > 0 ? `Obnoví se za ${h} h ${m} min` : `Obnoví se za ${m} min`
+})
+
+const claimingId = ref<string | null>(null)
+
+async function onClaim(id: string) {
+  if (claimingId.value) return
+  claimingId.value = id
+  try {
+    await game.claimQuest(id)
+  } catch (err) {
+    console.error('Vyzvednutí odměny selhalo:', err)
+  } finally {
+    claimingId.value = null
+  }
+}
+
+onMounted(() => {
+  game.loadQuests()
+  ticker = setInterval(() => {
+    now.value = Date.now()
+    // Period rolled over while the screen was open — pull the fresh set.
+    if (game.questsEndsAt && now.value >= new Date(game.questsEndsAt).getTime()) {
+      game.loadQuests()
+    }
+  }, 30_000)
+})
+
+onBeforeUnmount(() => clearInterval(ticker))
 </script>
 
 <template>
   <div class="screen">
-    <TopBar title="Výzvy" :subtitle="`${game.dailyDoneCount}/${game.challenges.length} denních splněno`" />
+    <TopBar title="Výzvy" :subtitle="`${game.dailyDoneCount}/${game.quests.length} denních splněno`" />
 
     <div class="screen__scroll">
       <div class="banner">
         <div class="banner__icon"><SgIcon name="calendar-clock" :size="22" /></div>
         <div class="banner__body">
           <div class="banner__title">Denní výzvy</div>
-          <div class="banner__sub">Obnoví se za 6 h 12 min</div>
+          <div class="banner__sub">{{ resetLabel }}</div>
         </div>
         <div class="banner__reward">
           <div class="banner__amount">+{{ game.dailyXpAvailable }}</div>
@@ -26,17 +68,22 @@ const game = useGameStore()
       </div>
 
       <span class="eyebrow screen__eyebrow">Dnešní úkoly</span>
-      <div class="quests">
+      <div v-if="!game.quests.length" class="hint">Načítám výzvy…</div>
+      <div v-else class="quests">
         <SgChallengeCard
-          v-for="(c, i) in game.challenges"
-          :key="i"
-          :title="c.title"
-          :icon="c.icon"
-          :color="c.cat ? game.cats[c.cat].color : 'var(--brand)'"
-          :value="c.value"
-          :max="c.max"
-          :reward="c.reward"
-          :done="c.done"
+          v-for="q in game.quests"
+          :key="q.id"
+          :title="q.title"
+          :icon="q.icon"
+          :color="q.cat ? game.cats[q.cat].color : 'var(--brand)'"
+          :value="q.value"
+          :max="q.max"
+          :reward="q.reward"
+          :done="q.done"
+          :claimed="q.claimed"
+          claimable
+          :claiming="claimingId === q.id"
+          @claim="onClaim(q.id)"
         />
       </div>
 
@@ -52,6 +99,7 @@ const game = useGameStore()
           :description="a.desc"
           :icon="a.icon"
           :tier="a.tier"
+          :color="a.color"
           :unlocked="a.unlocked"
           :value="a.value"
           :max="a.max"
@@ -98,6 +146,7 @@ const game = useGameStore()
 .banner__caption { font-family: var(--font-mono); font-size: 10px; color: var(--text-on-night-muted); }
 
 .quests { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+.hint { padding: 22px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
 
 .achievements {
   display: grid;

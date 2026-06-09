@@ -49,6 +49,7 @@ let stopLayer: L.LayerGroup | null = null
 let playerMarker: L.Marker | null = null
 let accuracyCircle: L.Circle | null = null
 let lastLoadCenter: { lat: number; lng: number } | null = null
+let following = true // keep the map centred on the player until they pan away
 let initialized = false
 let destroyed = false // set on unmount so async work can't touch a dead map
 let invalidateTimer: ReturnType<typeof setTimeout> | undefined
@@ -203,6 +204,7 @@ watch(query, (q) => {
 function selectResult(stop: ApiStop) {
   query.value = ''
   results.value = []
+  following = false // viewing a searched stop — don't snap back to the player
   map.value?.flyTo([stop.lat, stop.lng], 16, { duration: 0.8 })
   selectStop(stop)
 }
@@ -259,11 +261,15 @@ watch(
       initialized = true
       map.value.setView([c.lat, c.lng], 16)
       void loadAround(c)
-    } else if (
-      lastLoadCenter &&
-      haversine(c.lat, c.lng, lastLoadCenter.lat, lastLoadCenter.lng) > RELOAD_DISTANCE_M
-    ) {
-      void loadAround(c)
+    } else {
+      // Follow the player so the dot stays centred — unless they've panned away.
+      if (following) map.value.panTo([c.lat, c.lng], { animate: true })
+      if (
+        lastLoadCenter &&
+        haversine(c.lat, c.lng, lastLoadCenter.lat, lastLoadCenter.lng) > RELOAD_DISTANCE_M
+      ) {
+        void loadAround(c)
+      }
     }
   },
 )
@@ -297,6 +303,10 @@ onMounted(() => {
   trackLayer = L.layerGroup().addTo(m)
   stopLayer = L.layerGroup().addTo(m)
   map.value = m
+  // A user-initiated drag stops follow mode; tapping locate turns it back on.
+  m.on('dragstart', () => {
+    following = false
+  })
   invalidateTimer = setTimeout(() => m.invalidateSize(), 60)
   geo.start()
 })
@@ -310,6 +320,7 @@ onBeforeUnmount(() => {
 })
 
 function recenter() {
+  following = true
   map.value?.setView([playerLoc.value.lat, playerLoc.value.lng], 16)
 }
 

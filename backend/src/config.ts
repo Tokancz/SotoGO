@@ -33,4 +33,7 @@ export const config = {
   // volume (or swap for S3) in production. Files are served at /uploads.
   uploadDir: resolve(process.env.UPLOAD_DIR ?? './uploads'),
   maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 6 * 1024 * 1024),
+  // How often daily quests roll over, in hours. Periods are aligned to the Unix
+  // epoch (UTC), so 24 = a fresh set at 00:00 UTC; set 6 for four sets a day.
+  questPeriodHours: Number(process.env.QUEST_PERIOD_HOURS ?? 24),
 }
