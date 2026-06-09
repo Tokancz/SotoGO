@@ -11,12 +11,21 @@ const props = withDefaults(
     max?: number
     reward?: number
     done?: boolean
+    /** Whether the reward has already been collected. */
+    claimed?: boolean
+    /** Show a claim button while complete + unclaimed. */
+    claimable?: boolean
+    /** Disable the claim button while a claim is in flight. */
+    claiming?: boolean
   }>(),
-  { color: 'var(--brand)', value: 0, max: 1, done: false },
+  { color: 'var(--brand)', value: 0, max: 1, done: false, claimed: false, claimable: false },
 )
+
+const emit = defineEmits<{ claim: [] }>()
 
 const pct = computed(() => Math.max(0, Math.min(100, (props.value / props.max) * 100)))
 const complete = computed(() => props.done || props.value >= props.max)
+const showClaim = computed(() => props.claimable && complete.value && !props.claimed)
 </script>
 
 <template>
@@ -30,8 +39,15 @@ const complete = computed(() => props.done || props.value >= props.max)
         <span v-if="reward != null" class="sg-quest__reward"><SgIcon name="zap" />+{{ reward }} XP</span>
       </span>
       <span class="sg-quest__progrow">
-        <template v-if="complete">
-          <span class="sg-quest__check"><SgIcon name="check-circle-2" />Splněno</span>
+        <template v-if="showClaim">
+          <button class="sg-quest__claim" :disabled="claiming" @click="emit('claim')">
+            <SgIcon name="gift" />{{ claiming ? 'Vyzvedávám…' : 'Vyzvednout odměnu' }}
+          </button>
+        </template>
+        <template v-else-if="complete">
+          <span class="sg-quest__check">
+            <SgIcon name="check-circle-2" />{{ claimed ? 'Odměna získána' : 'Splněno' }}
+          </span>
         </template>
         <template v-else>
           <span class="sg-quest__track"><span class="sg-quest__fill" :style="{ width: `${pct}%` }" /></span>
@@ -95,7 +111,9 @@ const complete = computed(() => props.done || props.value >= props.max)
   box-shadow: inset 0 1px 2px rgba(20, 26, 33, 0.08);
 }
 .sg-quest__fill {
+  display: block; // it's a <span> — without this the width/height are ignored
   height: 100%;
+  min-width: 0;
   border-radius: var(--radius-pill);
   background: var(--_c, var(--brand));
   transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -117,5 +135,24 @@ const complete = computed(() => props.done || props.value >= props.max)
   color: var(--green-600);
   flex: none;
   svg { width: 14px; height: 14px; }
+}
+.sg-quest__claim {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: 12.5px;
+  color: #4a2d00;
+  background: var(--xp);
+  padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.12s ease, filter 0.12s ease;
+  svg { width: 14px; height: 14px; }
+  &:active { transform: scale(0.96); }
+  &:disabled { opacity: 0.6; cursor: default; }
 }
 </style>

@@ -5,7 +5,7 @@
 // spin up and downloads its language data, so we keep a single lazily-created
 // worker alive for the session and reuse it across scans.
 
-import { createWorker, type Worker } from 'tesseract.js'
+import { createWorker, PSM, type Worker } from 'tesseract.js'
 
 let workerPromise: Promise<Worker> | null = null
 
@@ -13,8 +13,14 @@ async function getWorker(): Promise<Worker> {
   if (!workerPromise) {
     workerPromise = (async () => {
       const worker = await createWorker('eng')
-      // Evidenční čísla are digits only — whitelisting them sharply cuts noise.
-      await worker.setParameters({ tessedit_char_whitelist: '0123456789' })
+      await worker.setParameters({
+        // Evidenční čísla are digits only — whitelisting them sharply cuts noise.
+        tessedit_char_whitelist: '0123456789',
+        // The reticle crop is one short run of digits, not a page — telling
+        // Tesseract to read it as a single line is far more reliable than the
+        // default auto-segmentation, which often returns nothing on a tight crop.
+        tessedit_pageseg_mode: PSM.SINGLE_LINE,
+      })
       return worker
     })()
   }

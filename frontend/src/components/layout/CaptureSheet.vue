@@ -24,8 +24,14 @@ const corners = ['nw', 'ne', 'sw', 'se'] as const
 const RETICLE: CropRect = { x: 0.13, y: 0.36, w: 0.74, h: 0.2 }
 
 const stillUrl = ref('')
+// The captured photo to upload with the catch (JPEG blob, or the picked file).
+const photoBlob = ref<Blob | null>(null)
 const recognizedNumber = ref<string | null>(null)
 const scanError = ref(false)
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.85))
+}
 
 // The resolved catalog model shown on the reward screen.
 const matched = ref<CatalogVehicle | null>(null)
@@ -33,6 +39,9 @@ const reward = 100 // CATCH_XP — flat, awarded server-side on a new catch.
 
 // Manual-confirm picker state (used when OCR can't auto-resolve the model).
 const pickerCat = ref<CategoryKey>('tram')
+
+const saving = ref(false)
+const saveError = ref(false)
 
 const cat = computed(() => (matched.value ? game.cats[matched.value.category] : null))
 const alreadyHave = computed(() =>
@@ -73,8 +82,11 @@ function applyNumber(number: string | null) {
 
 async function capture() {
   if (!videoEl.value || !camera.active.value) return
-  // Grab frames before releasing the camera.
-  stillUrl.value = camera.captureCanvas(videoEl.value).toDataURL('image/jpeg', 0.8)
+  // Grab frames before releasing the camera: full frame for the saved photo,
+  // the reticle crop for OCR.
+  const full = camera.captureCanvas(videoEl.value)
+  stillUrl.value = full.toDataURL('image/jpeg', 0.8)
+  photoBlob.value = await canvasToBlob(full)
   const crop = camera.captureCanvas(videoEl.value, RETICLE)
   camera.stop()
   phase.value = 'scan'
@@ -94,6 +106,7 @@ async function onFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   stillUrl.value = URL.createObjectURL(file)
+  photoBlob.value = file
   phase.value = 'scan'
   scanError.value = false
   try {
@@ -115,15 +128,28 @@ async function restart() {
   recognizedNumber.value = null
   matched.value = null
   scanError.value = false
+  saveError.value = false
   stillUrl.value = ''
+  photoBlob.value = null
   phase.value = 'aim'
   await nextTick()
   if (videoEl.value) await camera.start(videoEl.value)
 }
 
 async function addToPark() {
-  if (!matched.value) return
-  await game.collectVehicle(matched.value.id)
+  if (!matched.value || saving.value) return
+  saving.value = true
+  saveError.value = false
+  try {
+    await game.collectVehicle(matched.value.id, photoBlob.value)
+  } catch (err) {
+    // Keep the sheet open so the catch isn't lost — let the player retry.
+    console.error('Uložení úlovku selhalo:', err)
+    saveError.value = true
+    return
+  } finally {
+    saving.value = false
+  }
   emit('caught')
   emit('close')
 }
@@ -250,8 +276,18 @@ async function addToPark() {
       </div>
       <div class="capture__sub">{{ cat?.label }} · {{ matched?.operator }}</div>
       <div v-if="!alreadyHave" class="capture__xp"><SgIcon name="zap" :size="20" /> +{{ reward }} XP</div>
-      <SgButton variant="reward" size="lg" full-width leading-icon="plus" @click="addToPark">
-        {{ alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
+      <div v-if="saveError" class="capture__saveerror">
+        <SgIcon name="triangle-alert" :size="15" /> Uložení se nezdařilo. Zkus to znovu.
+      </div>
+      <SgButton
+        variant="reward"
+        size="lg"
+        full-width
+        :leading-icon="saving ? undefined : 'plus'"
+        :disabled="saving"
+        @click="addToPark"
+      >
+        {{ saving ? 'Ukládám…' : saveError ? 'Zkusit znovu' : alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
       </SgButton>
     </div>
   </div>
@@ -462,6 +498,14 @@ async function addToPark() {
   padding: 8px 18px;
   border-radius: var(--radius-pill);
   margin-bottom: 30px;
+}
+.capture__saveerror {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #ff8a80;
+  margin-bottom: 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {

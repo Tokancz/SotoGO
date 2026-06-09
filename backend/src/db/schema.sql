@@ -86,3 +86,17 @@ CREATE TABLE IF NOT EXISTS user_stops (
   visited_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, stop_id)
 );
+
+-- ── Daily quests ─────────────────────────────────────────────────────────────
+-- Quests themselves aren't stored: each player's set is derived deterministically
+-- per period from (user_id, period) in src/lib/quests.ts, and progress is counted
+-- live from user_vehicles/user_stops. This table only records that a completed
+-- quest's XP reward was already collected, so it can't be claimed twice. `period`
+-- is the integer period index (floor(epoch_ms / period_ms)).
+CREATE TABLE IF NOT EXISTS user_quest_claims (
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  period     BIGINT NOT NULL,
+  quest_id   TEXT NOT NULL,
+  claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, period, quest_id)
+);

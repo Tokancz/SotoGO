@@ -9,6 +9,7 @@ import { asyncHandler } from '../util/asyncHandler.js'
 import { publicUser, type UserRow } from '../lib/user.js'
 import { isAllowedImage, saveImage } from '../lib/uploads.js'
 import { levelFromTotalXp } from '../lib/leveling.js'
+import { currentPeriod, questById, questsFor, type QuestTemplate } from '../lib/quests.js'
 
 export const meRouter = Router()
 meRouter.use(requireAuth)
@@ -157,5 +158,99 @@ meRouter.post(
     const ids = await visitedIds(userId)
 
     res.json({ user: publicUser(user), visitedIds: ids, awardedXp: awarded })
+  }),
+)
+
+/** Count progress toward one quest since the period start (a JS Date). */
+async function questProgress(userId: string, since: Date, q: QuestTemplate): Promise<number> {
+  let sql: string
+  const params: unknown[] = [userId, since]
+  if (q.kind === 'visit') {
+    sql = 'select count(*)::int n from user_stops where user_id = $1 and visited_at >= $2'
+    if (q.category) {
+      sql =
+        `select count(*)::int n from user_stops us join stops s on s.id = us.stop_id
+         where us.user_id = $1 and us.visited_at >= $2 and $3 = any(s.categories)`
+      params.push(q.category)
+    }
+  } else {
+    sql = 'select count(*)::int n from user_vehicles where user_id = $1 and found_at >= $2'
+    if (q.category) {
+      sql =
+        `select count(*)::int n from user_vehicles uv join vehicle_types vt on vt.id = uv.vehicle_type_id
+         where uv.user_id = $1 and uv.found_at >= $2 and vt.category = $3`
+      params.push(q.category)
+    }
+  }
+  const { rows } = await pool.query<{ n: number }>(sql, params)
+  return rows[0]?.n ?? 0
+}
+
+// GET /api/me/quests — this period's per-player quest set, with live progress.
+meRouter.get(
+  '/quests',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const period = currentPeriod(config.questPeriodHours)
+    const templates = questsFor(userId, period.index)
+
+    const claims = await pool.query<{ quest_id: string }>(
+      'select quest_id from user_quest_claims where user_id = $1 and period = $2',
+      [userId, period.index],
+    )
+    const claimed = new Set(claims.rows.map((r) => r.quest_id))
+
+    const since = new Date(period.startMs)
+    const quests = await Promise.all(
+      templates.map(async (t) => {
+        const value = await questProgress(userId, since, t)
+        return {
+          id: t.id,
+          title: t.title,
+          category: t.category,
+          icon: t.icon,
+          value: Math.min(value, t.target),
+          max: t.target,
+          reward: t.reward,
+          done: value >= t.target,
+          claimed: claimed.has(t.id),
+        }
+      }),
+    )
+    res.json({ periodEndsAt: new Date(period.endMs).toISOString(), quests })
+  }),
+)
+
+// POST /api/me/quests/:id/claim — collect a completed quest's XP, once per period.
+meRouter.post(
+  '/quests/:id/claim',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const period = currentPeriod(config.questPeriodHours)
+
+    // Validate the quest actually belongs to THIS player's set this period.
+    const template = questById(req.params.id)
+    const inSet = template && questsFor(userId, period.index).some((t) => t.id === template.id)
+    if (!template || !inSet) return res.status(404).json({ error: 'Výzva nenalezena.' })
+
+    const value = await questProgress(userId, new Date(period.startMs), template)
+    if (value < template.target) {
+      return res.status(400).json({ error: 'Výzva ještě není splněná.' })
+    }
+
+    // The claims row is the source of truth — inserting it is what prevents a
+    // second payout (no row inserted ⇒ already claimed ⇒ award nothing).
+    const ins = await pool.query(
+      `insert into user_quest_claims (user_id, period, quest_id) values ($1, $2, $3)
+       on conflict do nothing returning quest_id`,
+      [userId, period.index, template.id],
+    )
+    if (!ins.rowCount) {
+      const user = (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+      return res.json({ user: publicUser(user), awardedXp: 0 })
+    }
+
+    const user = await awardXp(userId, template.reward)
+    res.json({ user: publicUser(user), awardedXp: template.reward })
   }),
 )
