@@ -43,7 +43,6 @@ let ticker: ReturnType<typeof setInterval> | undefined
 
 const result = ref<BattleResult | null>(null)
 
-const hpPct = computed(() => Math.max(0, Math.min(100, (hp.value / maxHp.value) * 100)))
 const secondsLeft = computed(() => (remainingMs.value / 1000).toFixed(1))
 const rarityColor = computed(() => `var(--rarity-${props.defenderRarity})`)
 
