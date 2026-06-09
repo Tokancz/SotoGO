@@ -214,7 +214,7 @@ async function addToPark() {
           <div v-if="phase === 'scan'" class="capture__scanline sg-scan-line" />
         </div>
         <div v-if="phase === 'aim' && camera.active.value" class="capture__hint">
-          Zaměř evidenční číslo do rámečku
+          Vyfoť vozidlo tak, aby bylo vidět evidenční číslo
         </div>
         <div v-if="phase === 'scan'" class="capture__status">
           <SgIcon name="scan-line" :size="16" /> Čtu evidenční číslo…
@@ -369,10 +369,12 @@ async function addToPark() {
 }
 .capture__reticle {
   position: absolute;
-  width: 74%;
-  max-width: 320px;
-  aspect-ratio: 320 / 86;
-  --reticle-radius: 22px;
+  // A roomy vehicle-framing guide — the number can sit anywhere inside it, the
+  // whole frame is sent for recognition (no centered crop anymore).
+  width: 84%;
+  max-width: 380px;
+  aspect-ratio: 4 / 5;
+  --reticle-radius: 26px;
   border-radius: var(--reticle-radius);
   // Dim everything outside the frame, with a faint inner hairline for definition.
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
