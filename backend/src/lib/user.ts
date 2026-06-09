@@ -1,4 +1,6 @@
 // Shared user row shape + the client-safe projection (never leaks the hash).
+import { config } from '../config.js'
+
 export interface UserRow {
   id: string
   username: string
@@ -22,5 +24,6 @@ export function publicUser(u: UserRow) {
     level: u.level,
     xp: u.xp,
     streak: u.streak_count ?? 0,
+    isAdmin: config.adminEmails.includes(u.email.toLowerCase()),
   }
 }

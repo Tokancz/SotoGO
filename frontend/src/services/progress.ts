@@ -2,7 +2,7 @@
 // awarded server-side, so responses carry the updated user.
 import api from './api'
 import type { User } from '@/types/auth'
-import type { CategoryKey } from '@/types/game'
+import type { CategoryKey, Rarity, VehicleStats } from '@/types/game'
 
 interface MutationResult {
   user: User
@@ -31,6 +31,8 @@ export const progressApi = {
         /** stopId → ISO timestamp of the most recent visit (for the re-visit cooldown). */
         visitedAt: Record<string, string>
         photos: Record<string, string>
+        /** Combat stats per collected vehicle id. */
+        stats: Record<string, VehicleStats>
       }>('/me/progress')
       .then((r) => r.data),
 
@@ -46,10 +48,15 @@ export const progressApi = {
       body = { vehicleId }
     }
     return api
-      .post<MutationResult & { collectedIds: string[]; imageUrl: string | null }>(
-        '/me/vehicles',
-        body,
-      )
+      .post<
+        MutationResult & {
+          collectedIds: string[]
+          imageUrl: string | null
+          /** The catch's rolled rarity + combat stats (also returned on a re-scan). */
+          rarity: Rarity
+          stats: { hp: number; maxHp: number; attack: number }
+        }
+      >('/me/vehicles', body)
       .then((r) => r.data)
   },
 
