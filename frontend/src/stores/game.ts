@@ -64,7 +64,7 @@ export const useGameStore = defineStore('game', {
         xpTotal,
         vehicles: state.collectedIds.length,
         stops: state.visitedIds.length,
-        streak: 0, // no streak source yet — comes with the game backend
+        streak: auth.user?.streak ?? 0,
       }
     },
 
@@ -216,6 +216,18 @@ export const useGameStore = defineStore('game', {
       void this.loadQuests() // a catch may have advanced a quest — refresh progress
     },
 
+    /** Remove a collected vehicle from the park. Reclaims XP server-side. */
+    async removeVehicle(id: string) {
+      if (!this.collectedIds.includes(id)) return
+      const res = await progressApi.removeVehicle(id)
+      this.collectedIds = res.collectedIds
+      const photos = { ...this.collectedPhotos }
+      delete photos[id]
+      this.collectedPhotos = photos
+      useAuthStore().setUser(res.user)
+      void this.loadQuests() // catch count dropped — refresh quest progress
+    },
+
     /** Collect by category + short name (what the OCR/capture flow knows). */
     async collectByModel(category: CategoryKey, shortName: string, photo?: Blob | null) {
       const v = this.catalog.find((x) => x.category === category && x.shortName === shortName)
@@ -232,6 +244,22 @@ export const useGameStore = defineStore('game', {
         void this.loadQuests() // a visit may have advanced a quest — refresh progress
       } catch (err) {
         console.error('Uložení návštěvy selhalo:', err)
+      }
+    },
+
+    /** Record today's check-in and advance the daily login streak. */
+    async checkIn() {
+      const auth = useAuthStore()
+      if (!auth.isAuthenticated) return
+      // Local calendar date (YYYY-MM-DD), not UTC, so the streak day matches
+      // what the player sees on their own clock.
+      const d = new Date()
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      try {
+        const { user } = await progressApi.checkin(date)
+        auth.setUser(user)
+      } catch (err) {
+        console.error('Záznam denní série selhal:', err)
       }
     },
 

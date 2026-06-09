@@ -7,7 +7,7 @@ import { config } from '../config.js'
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js'
 import { asyncHandler } from '../util/asyncHandler.js'
 import { publicUser, type UserRow } from '../lib/user.js'
-import { isAllowedImage, saveImage } from '../lib/uploads.js'
+import { deleteImage, isAllowedImage, saveImage } from '../lib/uploads.js'
 import { levelFromTotalXp } from '../lib/leveling.js'
 import { currentPeriod, questById, questsFor, type QuestTemplate } from '../lib/quests.js'
 
@@ -32,10 +32,11 @@ function stopReward(isGym: boolean, categories: string[]): number {
   return 20
 }
 
-/** Add XP to a user, keep level in sync, and return the client-safe user. */
+/** Adjust a user's XP (amount may be negative), keep level in sync, return the
+ *  client-safe user. XP floors at 0. */
 async function awardXp(userId: string, amount: number) {
   const { rows } = await pool.query<UserRow>(
-    'update users set xp = xp + $1 where id = $2 returning *',
+    'update users set xp = greatest(0, xp + $1) where id = $2 returning *',
     [amount, userId],
   )
   const user = rows[0]
@@ -127,6 +128,30 @@ meRouter.post(
     const ids = await collectedIds(userId)
 
     res.json({ user: publicUser(user), collectedIds: ids, awardedXp: CATCH_XP, imageUrl })
+  }),
+)
+
+// DELETE /api/me/vehicles/:id — remove a catch from the collection. Reclaims the
+// catch XP (floored at 0) so deleting + re-catching can't farm XP, and cleans up
+// the stored photo.
+meRouter.delete(
+  '/vehicles/:id',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const vehicleId = req.params.id
+
+    const del = await pool.query<{ image_url: string | null }>(
+      'delete from user_vehicles where user_id = $1 and vehicle_type_id = $2 returning image_url',
+      [userId, vehicleId],
+    )
+
+    const user = del.rowCount
+      ? await awardXp(userId, -CATCH_XP)
+      : (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+    if (del.rowCount) await deleteImage(del.rows[0].image_url)
+
+    const ids = await collectedIds(userId)
+    res.json({ user: publicUser(user), collectedIds: ids })
   }),
 )
 
@@ -252,5 +277,46 @@ meRouter.post(
 
     const user = await awardXp(userId, template.reward)
     res.json({ user: publicUser(user), awardedXp: template.reward })
+  }),
+)
+
+/** The calendar date one day before `date` (a YYYY-MM-DD string), UTC-safe. */
+function previousDay(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+// POST /api/me/checkin — record today's activity and advance the daily streak.
+// The client sends its LOCAL date (YYYY-MM-DD) so day boundaries match the user.
+meRouter.post(
+  '/checkin',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const today = String(req.body?.date ?? '')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) {
+      return res.status(400).json({ error: 'Neplatné datum.' })
+    }
+
+    const { rows } = await pool.query<UserRow>(
+      `select id, username, email, avatar_url, level, xp, streak_count,
+              to_char(last_active_date, 'YYYY-MM-DD') as last_active_date
+       from users where id = $1`,
+      [userId],
+    )
+    const user = rows[0]
+    const last = user.last_active_date
+
+    // Same day → already counted. Yesterday → extend. Otherwise → start over.
+    if (last !== today) {
+      const streak = last && last === previousDay(today) ? user.streak_count + 1 : 1
+      const upd = await pool.query<UserRow>(
+        `update users set streak_count = $1, last_active_date = $2 where id = $3 returning *`,
+        [streak, today, userId],
+      )
+      return res.json({ user: publicUser(upd.rows[0]) })
+    }
+
+    res.json({ user: publicUser(user) })
   }),
 )

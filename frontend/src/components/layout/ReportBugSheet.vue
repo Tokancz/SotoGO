@@ -2,11 +2,15 @@
 import { ref } from 'vue'
 import { AxiosError } from 'axios'
 import { reportApi } from '@/services/report'
+import { useDialog } from '@/composables/useDialog'
 import SgInput from '@/components/ui/SgInput.vue'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
 
 const emit = defineEmits<{ close: [] }>()
+
+const panelEl = ref<HTMLElement | null>(null)
+useDialog(panelEl, { onClose: () => emit('close') })
 
 const title = ref('')
 const description = ref('')
@@ -39,13 +43,13 @@ async function submit() {
 
 <template>
   <div class="rb" @click.self="emit('close')">
-    <div class="rb__panel">
-      <div class="rb__handle" />
+    <div ref="panelEl" class="rb__panel" role="dialog" aria-modal="true" aria-labelledby="rb-title">
+      <div class="rb__handle" aria-hidden="true" />
 
       <template v-if="state === 'done'">
         <div class="rb__done">
           <div class="rb__check"><SgIcon name="check" :size="30" /></div>
-          <h2 class="rb__title">Díky za nahlášení!</h2>
+          <h2 id="rb-title" class="rb__title">Díky za nahlášení!</h2>
           <p class="rb__sub">Issue byl vytvořen na GitHubu.</p>
           <a class="rb__link" :href="issueUrl" target="_blank" rel="noopener">Zobrazit issue</a>
           <SgButton variant="primary" size="lg" full-width @click="emit('close')">Zavřít</SgButton>
@@ -56,7 +60,7 @@ async function submit() {
         <div class="rb__head">
           <div class="rb__icon"><SgIcon name="bug" :size="20" /></div>
           <div>
-            <h2 class="rb__title">Nahlásit chybu</h2>
+            <h2 id="rb-title" class="rb__title">Nahlásit chybu</h2>
             <p class="rb__sub">Popiš, co nefunguje — vytvoříme issue na GitHubu.</p>
           </div>
         </div>

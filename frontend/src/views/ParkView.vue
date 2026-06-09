@@ -10,6 +10,7 @@ import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgVehicleCard from '@/components/game/SgVehicleCard.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import { useDialog } from '@/composables/useDialog'
 
 const game = useGameStore()
 
@@ -17,6 +18,9 @@ type Filter = 'all' | CategoryKey
 const filter = ref<Filter>('all')
 const view = ref<'mrizka' | 'seznam'>('mrizka')
 const detail = ref<CatalogVehicle | null>(null)
+
+const panelEl = ref<HTMLElement | null>(null)
+useDialog(panelEl, { onClose: () => (detail.value = null), active: () => detail.value != null })
 
 const counts = computed(() => game.countByCategory)
 
@@ -40,6 +44,22 @@ const stars: Record<Rarity, string> = {
 
 const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
 const detailPhoto = computed(() => (detail.value ? game.collectedPhotos[detail.value.id] : undefined))
+
+const deleting = ref(false)
+async function deleteDetail() {
+  const v = detail.value
+  if (!v || deleting.value) return
+  if (!confirm(`Opravdu odstranit ${v.shortName} z parku?`)) return
+  deleting.value = true
+  try {
+    await game.removeVehicle(v.id)
+    detail.value = null
+  } catch (err) {
+    console.error('Odstranění vozidla selhalo:', err)
+  } finally {
+    deleting.value = false
+  }
+}
 const previewStyle = computed(() =>
   detailCat.value
     ? {
@@ -84,7 +104,7 @@ const previewStyle = computed(() =>
       </div>
 
       <div class="screen__sectionhead">
-        <span class="eyebrow">{{ filter === 'all' ? 'Všechny modely' : game.cats[filter].plural }}</span>
+        <h2 class="eyebrow">{{ filter === 'all' ? 'Všechny modely' : game.cats[filter].plural }}</h2>
         <SgSegmentedControl
           v-model="view"
           :options="[
@@ -94,7 +114,7 @@ const previewStyle = computed(() =>
         />
       </div>
 
-      <div v-if="!game.catalogLoaded" class="hint">Načítám katalog…</div>
+      <p v-if="!game.catalogLoaded" class="hint">Načítám katalog…</p>
       <div v-else class="grid" :class="{ 'grid--list': view === 'seznam' }">
         <SgVehicleCard
           v-for="item in list"
@@ -116,16 +136,16 @@ const previewStyle = computed(() =>
 
     <Teleport to=".app-shell">
       <div v-if="detail && detailCat" class="sheet" @click.self="detail = null">
-        <div class="sheet__panel">
-          <div class="sheet__handle" />
+        <div ref="panelEl" class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="vehicle-detail-title">
+          <div class="sheet__handle" aria-hidden="true" />
           <div class="sheet__preview" :class="{ 'sheet__preview--photo': detailPhoto }" :style="detailPhoto ? undefined : previewStyle">
             <img v-if="detailPhoto" :src="detailPhoto" :alt="detail.shortName" />
             <SgIcon v-else :name="detailCat.icon" :size="84" />
           </div>
           <div class="sheet__head">
             <div>
-              <div class="sheet__code">{{ detail.shortName }}</div>
-              <div class="sheet__sub">{{ detail.model }}</div>
+              <h2 id="vehicle-detail-title" class="sheet__code">{{ detail.shortName }}</h2>
+              <p class="sheet__sub">{{ detail.model }}</p>
             </div>
             <SgBadge :color="detailCat.color" variant="solid" :icon="detailCat.icon">{{ detailCat.label }}</SgBadge>
           </div>
@@ -134,6 +154,9 @@ const previewStyle = computed(() =>
             <SgStatTile :value="detail.operator" label="Dopravce" color="var(--brand)" icon="award" />
           </div>
           <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }}</div>
+          <button class="sheet__delete" :disabled="deleting" @click="deleteDetail">
+            <SgIcon name="trash-2" :size="16" />{{ deleting ? 'Odstraňuji…' : 'Odstranit z parku' }}
+          </button>
         </div>
       </div>
     </Teleport>
@@ -206,5 +229,25 @@ const previewStyle = computed(() =>
   font-size: 13px;
   color: var(--text-secondary);
   svg { color: var(--text-muted); }
+}
+.sheet__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 20px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--danger-500) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-500);
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+  &:active { transform: scale(0.98); }
+  &:disabled { opacity: 0.6; cursor: default; }
 }
 </style>

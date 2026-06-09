@@ -2,8 +2,8 @@
 // returns the public path they're served at (/uploads/...). Local disk for dev;
 // swap the body of saveImage for an S3 put in production (docs/ARCHITECTURE.md
 // "Ukládání obrázků").
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, writeFile, unlink } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { config } from '../config.js'
 
@@ -23,4 +23,14 @@ export async function saveImage(buffer: Buffer, mime: string): Promise<string> {
   await mkdir(config.uploadDir, { recursive: true })
   await writeFile(join(config.uploadDir, name), buffer)
   return `/uploads/${name}`
+}
+
+/** Best-effort delete of a locally-stored upload (no-op for remote/empty paths). */
+export async function deleteImage(publicPath: string | null): Promise<void> {
+  if (!publicPath || !publicPath.startsWith('/uploads/')) return
+  try {
+    await unlink(join(config.uploadDir, basename(publicPath)))
+  } catch {
+    // Already gone or never written — nothing to clean up.
+  }
 }

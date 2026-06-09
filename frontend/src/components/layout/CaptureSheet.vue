@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
 import { useCamera, type CropRect } from '@/composables/useCamera'
+import { useDialog } from '@/composables/useDialog'
 import { recognizeFleetNumber } from '@/lib/ocr'
 import { guessCategory, resolveFleetNumber } from '@/data/fleet'
 import type { CatalogVehicle, CategoryKey } from '@/types/game'
@@ -12,6 +13,9 @@ const emit = defineEmits<{ close: []; caught: [] }>()
 
 const game = useGameStore()
 const camera = useCamera()
+
+const rootEl = ref<HTMLElement | null>(null)
+useDialog(rootEl, { onClose: () => emit('close') })
 
 type Phase = 'aim' | 'scan' | 'confirm' | 'reward'
 const phase = ref<Phase>('aim')
@@ -156,9 +160,9 @@ async function addToPark() {
 </script>
 
 <template>
-  <div class="capture" :class="{ 'capture--reward': phase === 'reward' }" role="dialog" aria-modal="true">
+  <div ref="rootEl" class="capture" :class="{ 'capture--reward': phase === 'reward' }" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
     <div class="capture__bar">
-      <span class="capture__heading">{{ phase === 'reward' ? 'Nový objev!' : 'Vyfoť vozidlo' }}</span>
+      <h2 id="capture-heading" class="capture__heading">{{ phase === 'reward' ? 'Nový objev!' : 'Vyfoť vozidlo' }}</h2>
       <button class="capture__close" aria-label="Zavřít" @click="emit('close')"><SgIcon name="x" :size="18" /></button>
     </div>
 
@@ -346,20 +350,47 @@ async function addToPark() {
   width: 74%;
   max-width: 320px;
   aspect-ratio: 320 / 86;
-  border: 3px solid rgba(255, 255, 255, 0.5);
-  border-radius: 18px;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+  --reticle-radius: 22px;
+  border-radius: var(--reticle-radius);
+  // Dim everything outside the frame, with a faint inner hairline for definition.
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
+// Smooth corner brackets that curve exactly like the frame's rounded corners.
 .capture__corner {
   position: absolute;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border: 0 solid var(--brand);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--brand) 55%, transparent));
 }
-.capture__corner--nw { top: -3px; left: -3px; border-top: 4px solid var(--brand); border-left: 4px solid var(--brand); }
-.capture__corner--ne { top: -3px; right: -3px; border-top: 4px solid var(--brand); border-right: 4px solid var(--brand); }
-.capture__corner--sw { bottom: -3px; left: -3px; border-bottom: 4px solid var(--brand); border-left: 4px solid var(--brand); }
-.capture__corner--se { bottom: -3px; right: -3px; border-bottom: 4px solid var(--brand); border-right: 4px solid var(--brand); }
+.capture__corner--nw {
+  top: -2px;
+  left: -2px;
+  border-top-width: 3px;
+  border-left-width: 3px;
+  border-top-left-radius: var(--reticle-radius);
+}
+.capture__corner--ne {
+  top: -2px;
+  right: -2px;
+  border-top-width: 3px;
+  border-right-width: 3px;
+  border-top-right-radius: var(--reticle-radius);
+}
+.capture__corner--sw {
+  bottom: -2px;
+  left: -2px;
+  border-bottom-width: 3px;
+  border-left-width: 3px;
+  border-bottom-left-radius: var(--reticle-radius);
+}
+.capture__corner--se {
+  bottom: -2px;
+  right: -2px;
+  border-bottom-width: 3px;
+  border-right-width: 3px;
+  border-bottom-right-radius: var(--reticle-radius);
+}
 .capture__scanline {
   position: absolute;
   left: 0;

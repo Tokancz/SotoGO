@@ -63,6 +63,7 @@ function onCaught() {
 onMounted(async () => {
   game.ensureCatalog()
   game.loadQuests()
+  game.checkIn()
   // Seed the achievement baseline only after progress (and catalog, which some
   // achievements count against) are in — so we don't announce pre-existing ones.
   await Promise.all([game.loadProgress(), game.ensureCatalog()])

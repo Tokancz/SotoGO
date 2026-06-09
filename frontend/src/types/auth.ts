@@ -6,6 +6,8 @@ export interface User {
   avatarUrl: string | null
   level: number
   xp: number
+  /** Daily login streak (consecutive days checked in). */
+  streak: number
 }
 
 export interface AuthResponse {

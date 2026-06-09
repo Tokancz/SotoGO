@@ -22,8 +22,6 @@ function logout() {
   router.replace({ name: 'login' })
 }
 
-const push = ref(true)
-const sound = ref(true)
 const reportOpen = ref(false)
 </script>
 
@@ -32,14 +30,14 @@ const reportOpen = ref(false)
     <TopBar title="Profil" />
 
     <div class="screen__scroll">
-      <div class="hero">
+      <header class="hero">
         <SgLevelRing :level="player.level" :value="player.xp" :max="player.xpMax" :size="92" :sub-text="`${player.xp}/${player.xpMax}`" />
         <div class="hero__body">
-          <div class="hero__name">{{ player.name }}</div>
-          <div class="hero__handle">{{ player.handle }}</div>
+          <h2 class="hero__name">{{ player.name }}</h2>
+          <p class="hero__handle">{{ player.handle }}</p>
           <SgBadge tone="brand" variant="solid" icon="award">Šotouš · Level {{ player.level }}</SgBadge>
         </div>
-      </div>
+      </header>
 
       <div class="stats">
         <SgStatTile :value="player.vehicles" label="Vozidel" color="var(--cat-tram)" icon="tram-front" />
@@ -48,15 +46,15 @@ const reportOpen = ref(false)
       </div>
 
       <div class="screen__sectionhead">
-        <span class="eyebrow">Poslední úlovky</span>
+        <h2 class="eyebrow">Poslední úlovky</h2>
         <RouterLink :to="{ name: 'park' }" class="screen__link">Vše v parku</RouterLink>
       </div>
-      <div v-if="game.recentVehicles.length === 0" class="empty">
+      <p v-if="game.recentVehicles.length === 0" class="empty">
         <SgIcon name="camera" :size="22" />
         <span>Zatím žádné úlovky — vyfoť své první vozidlo!</span>
-      </div>
-      <div v-else class="recent">
-        <div v-for="v in game.recentVehicles" :key="v.id" class="recent__row">
+      </p>
+      <ul v-else class="recent">
+        <li v-for="v in game.recentVehicles" :key="v.id" class="recent__row">
           <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[v.category].color} 14%, white)`, color: game.cats[v.category].color }">
             <SgIcon :name="game.cats[v.category].icon" :size="20" />
           </div>
@@ -65,30 +63,32 @@ const reportOpen = ref(false)
             <div class="recent__sub">{{ game.cats[v.category].label }} · {{ v.operator }}</div>
           </div>
           <span class="recent__date">{{ v.manufacturer }}</span>
-        </div>
-      </div>
+        </li>
+      </ul>
 
-      <span class="eyebrow screen__eyebrow">Nastavení</span>
+      <h2 class="eyebrow screen__eyebrow">Nastavení</h2>
       <div class="settings">
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="bell" :size="20" />
           <span class="settings__label">Push notifikace</span>
-          <SgSwitch v-model="push" />
+          <span class="settings__soon">Brzy</span>
+          <SgSwitch :model-value="false" disabled />
         </div>
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="volume-2" :size="20" />
           <span class="settings__label">Zvuky a vibrace</span>
-          <SgSwitch v-model="sound" />
+          <span class="settings__soon">Brzy</span>
+          <SgSwitch :model-value="false" disabled />
         </div>
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="map" :size="20" />
           <span class="settings__label">Offline mapa</span>
-          <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
+          <span class="settings__soon">Brzy</span>
         </div>
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="shield" :size="20" />
           <span class="settings__label">Soukromí</span>
-          <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
+          <span class="settings__soon">Brzy</span>
         </div>
         <button type="button" class="settings__row settings__row--button" @click="reportOpen = true">
           <SgIcon name="bug" :size="20" />
@@ -134,7 +134,7 @@ const reportOpen = ref(false)
   font-size: 13.5px;
   @include soft-card(var(--radius-md));
 }
-.recent { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+.recent { display: flex; flex-direction: column; gap: 8px; margin: 0 0 24px; padding: 0; list-style: none; }
 .recent__row {
   display: flex;
   align-items: center;
@@ -163,6 +163,24 @@ const reportOpen = ref(false)
 }
 .settings__label { flex: 1; font-weight: var(--fw-medium); font-size: 15px; color: var(--text-primary); text-align: left; }
 .settings__chevron { color: var(--text-muted); }
+// Not-yet-implemented settings: dimmed, non-interactive, tagged "Brzy".
+.settings__row--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  :deep(.sg-switch) { pointer-events: none; cursor: not-allowed; }
+}
+.settings__soon {
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+}
 .settings__row--button {
   width: 100%;
   border: none;
