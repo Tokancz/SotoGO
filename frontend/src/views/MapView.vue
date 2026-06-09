@@ -58,6 +58,7 @@ let lastLoadCenter: { lat: number; lng: number } | null = null
 let following = true // keep the map centred on the player until they pan away
 let initialized = false
 let destroyed = false // set on unmount so async work can't touch a dead map
+let mapAnimating = false // true during a zoom animation (defer marker churn until idle)
 let invalidateTimer: ReturnType<typeof setTimeout> | undefined
 
 const playerLoc = ref({ ...DEFAULT_LOC })
@@ -200,13 +201,23 @@ function refreshMarkerStates() {
   for (const stop of game.stops) applyState(stop)
 }
 
-function renderStops() {
-  for (const stop of game.stops) addMarker(stop)
-}
-
-function clearStops() {
-  stopLayer?.clearLayers()
-  for (const id of Object.keys(markersById)) delete markersById[id]
+/**
+ * Reconcile pins with the loaded stops: add new ones, remove gone ones, leave
+ * the rest untouched. Avoids tearing out every marker (clearLayers) on each
+ * reload, which could race with an in-flight map animation — Leaflet then
+ * dereferences a removed icon ("Cannot read properties of null … parentNode").
+ */
+function syncStops() {
+  const want = new Set(game.stops.map((s) => s.id))
+  for (const id of Object.keys(markersById)) {
+    if (!want.has(id)) {
+      stopLayer?.removeLayer(markersById[id])
+      delete markersById[id]
+    }
+  }
+  for (const stop of game.stops) {
+    if (!markersById[stop.id]) addMarker(stop)
+  }
 }
 
 async function drawTracks(stop: ApiStop) {
@@ -293,15 +304,22 @@ async function loadAround(loc: { lat: number; lng: number }) {
   if (destroyed || !map.value) return // unmounted while loading
   lastLoadCenter = { ...loc }
   noStopsNearby.value = game.stops.length === 0
-  // Lock panning to the loaded area so the user can't drift into empty space.
-  map.value?.setMaxBounds(boundsAround(loc, LOAD_KM))
-  clearStops()
-  renderStops()
-  selected.value =
-    [...game.stops].sort(
-      (a, b) =>
-        haversine(loc.lat, loc.lng, a.lat, a.lng) - haversine(loc.lat, loc.lng, b.lat, b.lng),
-    )[0] ?? null
+
+  // Touching bounds/markers mid-zoom-animation can make Leaflet dereference a
+  // removed icon — defer until the current zoom animation settles.
+  const apply = () => {
+    if (destroyed || !map.value) return
+    // Lock panning to the loaded area so the user can't drift into empty space.
+    map.value.setMaxBounds(boundsAround(loc, LOAD_KM))
+    syncStops()
+    selected.value =
+      [...game.stops].sort(
+        (a, b) =>
+          haversine(loc.lat, loc.lng, a.lat, a.lng) - haversine(loc.lat, loc.lng, b.lat, b.lng),
+      )[0] ?? null
+  }
+  if (mapAnimating) map.value.once('zoomend', apply)
+  else apply()
 }
 
 // Live position → follow the player and refetch stops when they move far.
@@ -361,6 +379,13 @@ onMounted(() => {
   // A user-initiated drag stops follow mode; tapping locate turns it back on.
   m.on('dragstart', () => {
     following = false
+  })
+  // Track zoom animations so we don't churn markers while one is running.
+  m.on('zoomstart', () => {
+    mapAnimating = true
+  })
+  m.on('zoomend', () => {
+    mapAnimating = false
   })
   invalidateTimer = setTimeout(() => m.invalidateSize(), 60)
   geo.start()
