@@ -27,6 +27,15 @@ async function getWorker(): Promise<Worker> {
   return workerPromise
 }
 
+/**
+ * Kick off worker creation (and its core + language-data download) ahead of the
+ * first scan — e.g. while the capture sheet is open and the user is still
+ * framing — so `recognizeFleetNumber` isn't a cold start. Safe to call repeatedly.
+ */
+export function warmUpOcr(): void {
+  void getWorker()
+}
+
 /** Pick the most plausible evidenční číslo out of raw OCR text. */
 export function extractFleetNumber(text: string): string | null {
   const runs = text.match(/\d{3,6}/g)

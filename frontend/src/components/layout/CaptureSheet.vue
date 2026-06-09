@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
 import { useCamera, type CropRect } from '@/composables/useCamera'
 import { useDialog } from '@/composables/useDialog'
-import { recognizeFleetNumber } from '@/lib/ocr'
+import { recognizeFleetNumber, warmUpOcr } from '@/lib/ocr'
 import { guessCategory, resolveFleetNumber } from '@/data/fleet'
 import type { CatalogVehicle, CategoryKey } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
@@ -57,6 +57,13 @@ onMounted(async () => {
   game.ensureCatalog()
   await nextTick()
   if (videoEl.value) await camera.start(videoEl.value)
+  // Warm the OCR worker in the background while the user frames the shot, so the
+  // first scan isn't a cold download. Deferred so it never competes with camera
+  // startup or the open animation.
+  const warm = () => warmUpOcr()
+  const ric = (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
+  if (ric) ric(warm)
+  else window.setTimeout(warm, 400)
 })
 
 onBeforeUnmount(() => camera.stop())
