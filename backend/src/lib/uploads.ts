@@ -30,13 +30,16 @@ const s3 = s3Enabled
 // Where the public-readable objects are served from.
 const publicBase = config.s3.publicUrl || `${config.s3.endpoint}/${config.s3.bucket}`
 
-/** Persist an image buffer; returns its public URL (absolute for S3, "/uploads/…" local). */
-export async function saveImage(buffer: Buffer, mime: string): Promise<string> {
+/**
+ * Persist an image buffer; returns its public URL (absolute for S3, "/uploads/…"
+ * local). `prefix` groups objects in the bucket (e.g. "catches", "avatars").
+ */
+export async function saveImage(buffer: Buffer, mime: string, prefix = 'catches'): Promise<string> {
   const ext = EXT_BY_MIME[mime] ?? '.jpg'
   const name = `${randomUUID()}${ext}`
 
   if (s3) {
-    const key = `catches/${name}`
+    const key = `${prefix}/${name}`
     await s3.send(
       new PutObjectCommand({
         Bucket: config.s3.bucket,

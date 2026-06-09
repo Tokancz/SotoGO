@@ -1,6 +1,6 @@
 // Leaderboard API — top players by XP plus the caller's own rank (so it can be
 // pinned when they're outside the returned slice).
-import api from './api'
+import api, { mediaUrl } from './api'
 
 export interface LeaderboardEntry {
   rank: number
@@ -20,6 +20,16 @@ export interface LeaderboardData {
   entries: LeaderboardEntry[]
 }
 
+const withAbsoluteAvatar = (e: LeaderboardEntry): LeaderboardEntry => ({
+  ...e,
+  avatarUrl: mediaUrl(e.avatarUrl) ?? null,
+})
+
 export const leaderboardApi = {
-  get: () => api.get<LeaderboardData>('/me/leaderboard').then((r) => r.data),
+  get: () =>
+    api.get<LeaderboardData>('/me/leaderboard').then((r) => ({
+      ...r.data,
+      me: withAbsoluteAvatar(r.data.me),
+      entries: r.data.entries.map(withAbsoluteAvatar),
+    })),
 }

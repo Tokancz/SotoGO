@@ -262,6 +262,31 @@ meRouter.get(
 const REVISIT_XP = 10
 const VISIT_COOLDOWN_MS = 30 * 60_000
 
+// POST /api/me/avatar — upload/replace the player's profile picture (multipart
+// "photo"). Stored like catch photos; the previous uploaded avatar is cleaned up
+// (deleteImage ignores external URLs such as the Google profile picture).
+meRouter.post(
+  '/avatar',
+  upload.single('photo'),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    if (!req.file) return res.status(400).json({ error: 'Chybí obrázek.' })
+
+    const prior = await pool.query<{ avatar_url: string | null }>(
+      'select avatar_url from users where id = $1',
+      [userId],
+    )
+    const url = await saveImage(req.file.buffer, req.file.mimetype, 'avatars')
+    const { rows } = await pool.query<UserRow>(
+      'update users set avatar_url = $1 where id = $2 returning *',
+      [url, userId],
+    )
+    await deleteImage(prior.rows[0]?.avatar_url ?? null)
+
+    res.json({ user: publicUser(rows[0]) })
+  }),
+)
+
 // POST /api/me/stops/:id/visit — check in at a stop. First visit awards the full
 // stop reward; a re-visit awards a small flat bonus, but only once the cooldown
 // has elapsed (otherwise 409 with when it'll be available again). The visit time

@@ -5,12 +5,14 @@ import { useGameStore } from '@/stores/game'
 import { useAuthStore } from '@/stores/auth'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgLevelRing from '@/components/game/SgLevelRing.vue'
+import SgAvatar from '@/components/ui/SgAvatar.vue'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgSwitch from '@/components/ui/SgSwitch.vue'
 import SgConfirmDialog from '@/components/ui/SgConfirmDialog.vue'
 import SgIcon from '@/components/SgIcon.vue'
 import { useToastStore } from '@/stores/toast'
+import { downscaleImageFile } from '@/lib/image'
 
 // Opened rarely, from a settings tap — no reason to ship it on the profile load.
 const ReportBugSheet = defineAsyncComponent(() => import('@/components/layout/ReportBugSheet.vue'))
@@ -28,6 +30,25 @@ function logout() {
 }
 
 const reportOpen = ref(false)
+
+// Profile picture upload (downscaled client-side; reuses the catch-photo path).
+const uploadingAvatar = ref(false)
+async function onAvatarPick(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // let the same file be picked again later
+  if (!file || uploadingAvatar.value) return
+  uploadingAvatar.value = true
+  try {
+    const photo = await downscaleImageFile(file, { maxDim: 512 })
+    await auth.updateAvatar(photo)
+  } catch (err) {
+    console.error('Nahrání profilového obrázku selhalo:', err)
+    toasts.push({ title: 'Nahrání se nezdařilo', description: 'Zkus to prosím znovu.', icon: 'triangle-alert', color: 'var(--danger-500)' })
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
 
 // Destructive: wipe all progress (gated behind a confirmation dialog).
 const confirmReset = ref(false)
@@ -58,7 +79,13 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
 
     <div class="screen__scroll">
       <header class="hero">
-        <SgLevelRing :level="player.level" :value="player.xp" :max="player.xpMax" :size="92" :sub-text="`${player.xp}/${player.xpMax}`" />
+        <SgLevelRing :level="player.level" :value="player.xp" :max="player.xpMax" :size="92">
+          <label class="avataredit" :class="{ 'avataredit--busy': uploadingAvatar }" aria-label="Změnit profilový obrázek">
+            <SgAvatar :src="player.avatarUrl ?? undefined" :name="player.name" :size="60" />
+            <span class="avataredit__badge"><SgIcon name="camera" :size="13" /></span>
+            <input type="file" accept="image/*" :disabled="uploadingAvatar" @change="onAvatarPick" />
+          </label>
+        </SgLevelRing>
         <div class="hero__body">
           <h2 class="hero__name">{{ player.name }}</h2>
           <p class="hero__handle">{{ player.handle }}</p>
@@ -172,6 +199,30 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
 .screen__link { font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 13px; color: var(--text-brand); text-decoration: none; cursor: pointer; }
 
 .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.avataredit {
+  position: relative;
+  display: inline-flex;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+  input { display: none; }
+  &:active { transform: scale(0.97); }
+}
+.avataredit--busy { opacity: 0.55; pointer-events: none; }
+.avataredit__badge {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--text-on-brand);
+  border: 2px solid var(--surface-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .hero__body { flex: 1; min-width: 0; }
 .hero__name { font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 22px; line-height: 1.1; }
 .hero__handle { color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; margin-bottom: 8px; }
