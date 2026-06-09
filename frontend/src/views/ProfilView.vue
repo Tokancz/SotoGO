@@ -8,7 +8,9 @@ import SgLevelRing from '@/components/game/SgLevelRing.vue'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgSwitch from '@/components/ui/SgSwitch.vue'
+import SgConfirmDialog from '@/components/ui/SgConfirmDialog.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import { useToastStore } from '@/stores/toast'
 
 // Opened rarely, from a settings tap — no reason to ship it on the profile load.
 const ReportBugSheet = defineAsyncComponent(() => import('@/components/layout/ReportBugSheet.vue'))
@@ -18,6 +20,7 @@ const player = computed(() => game.player)
 
 const auth = useAuthStore()
 const router = useRouter()
+const toasts = useToastStore()
 
 function logout() {
   auth.logout()
@@ -25,6 +28,24 @@ function logout() {
 }
 
 const reportOpen = ref(false)
+
+// Destructive: wipe all progress (gated behind a confirmation dialog).
+const confirmReset = ref(false)
+const resetting = ref(false)
+async function resetData() {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    await game.resetProgress()
+    confirmReset.value = false
+    toasts.push({ eyebrow: 'Hotovo', title: 'Data smazána', description: 'Tvůj postup byl vynulován.', icon: 'trash-2' })
+  } catch (err) {
+    console.error('Smazání dat selhalo:', err)
+    toasts.push({ title: 'Smazání se nezdařilo', description: 'Zkus to prosím znovu.', icon: 'triangle-alert', color: 'var(--danger-500)' })
+  } finally {
+    resetting.value = false
+  }
+}
 
 // Build stamp (commit + date), injected at build time — handy for telling at a
 // glance whether a deployed build already includes a given feature.
@@ -50,6 +71,15 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
         <SgStatTile :value="player.stops" label="Zastávek" color="var(--brand)" icon="map-pin" />
         <SgStatTile :value="player.streak" label="dní v sérii" color="var(--xp)" icon="flame" />
       </div>
+
+      <RouterLink :to="{ name: 'zebricek' }" class="leaderlink">
+        <span class="leaderlink__icon"><SgIcon name="trophy" :size="20" /></span>
+        <span class="leaderlink__body">
+          <span class="leaderlink__title">Žebříček hráčů</span>
+          <span class="leaderlink__sub">Porovnej své XP s ostatními</span>
+        </span>
+        <SgIcon class="leaderlink__chevron" name="chevron-right" :size="18" />
+      </RouterLink>
 
       <div class="screen__sectionhead">
         <h2 class="eyebrow">Poslední úlovky</h2>
@@ -101,6 +131,10 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
           <span class="settings__label">Nahlásit chybu</span>
           <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
         </button>
+        <button type="button" class="settings__row settings__row--action" @click="confirmReset = true">
+          <SgIcon name="trash-2" :size="20" />
+          <span class="settings__label">Smazat data</span>
+        </button>
         <button type="button" class="settings__row settings__row--action" @click="logout">
           <SgIcon name="log-out" :size="20" />
           <span class="settings__label">Odhlásit se</span>
@@ -113,6 +147,18 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
     <Teleport to=".app-shell">
       <ReportBugSheet v-if="reportOpen" @close="reportOpen = false" />
     </Teleport>
+
+    <SgConfirmDialog
+      v-if="confirmReset"
+      title="Smazat všechna data?"
+      message="Smažeš všechna nasbíraná vozidla, navštívené zastávky, splněné výzvy a XP. Účet zůstane zachován. Tuto akci nelze vrátit."
+      confirm-label="Smazat data"
+      icon="trash-2"
+      danger
+      :loading="resetting"
+      @confirm="resetData"
+      @cancel="confirmReset = false"
+    />
   </div>
 </template>
 
@@ -130,7 +176,33 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
 .hero__name { font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 22px; line-height: 1.1; }
 .hero__handle { color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; margin-bottom: 8px; }
 
-.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 24px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+
+.leaderlink {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  margin-bottom: 24px;
+  text-decoration: none;
+  @include soft-card(var(--radius-md));
+  transition: background 0.12s ease, transform 0.12s ease;
+  &:active { transform: scale(0.99); }
+  &:hover { background: var(--surface-sunken); }
+}
+.leaderlink__icon {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  @include flex-center;
+  flex: none;
+  color: var(--gold-700);
+  background: var(--xp-subtle);
+}
+.leaderlink__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.leaderlink__title { font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 15px; color: var(--text-primary); }
+.leaderlink__sub { font-size: 12px; color: var(--text-muted); }
+.leaderlink__chevron { color: var(--text-muted); flex: none; }
 
 .empty {
   display: flex;

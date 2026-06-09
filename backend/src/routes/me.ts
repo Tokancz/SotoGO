@@ -89,6 +89,38 @@ meRouter.get(
   }),
 )
 
+// DELETE /api/me/progress — wipe the player's progress: collected vehicles (and
+// their photos), visited stops, quest claims/completions, and reset XP/level/
+// streak to zero. The account itself stays. For testing and a "start over"
+// option; irreversible, so the client gates it behind a confirmation.
+meRouter.delete(
+  '/progress',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+
+    const del = await pool.query<{ image_url: string | null }>(
+      'delete from user_vehicles where user_id = $1 returning image_url',
+      [userId],
+    )
+    await Promise.all([
+      pool.query('delete from user_stops where user_id = $1', [userId]),
+      pool.query('delete from user_quest_claims where user_id = $1', [userId]),
+      pool.query('delete from user_quest_completions where user_id = $1', [userId]),
+    ])
+
+    const { rows } = await pool.query<UserRow>(
+      `update users set xp = 0, level = 1, streak_count = 0, last_active_date = null
+       where id = $1 returning *`,
+      [userId],
+    )
+
+    // Best-effort cleanup of the stored catch photos (the rows are already gone).
+    await Promise.all(del.rows.map((r) => deleteImage(r.image_url)))
+
+    res.json({ user: publicUser(rows[0]), collectedIds: [], visitedIds: [] })
+  }),
+)
+
 // POST /api/me/vehicles — record a catch; award XP if it's new. Accepts
 // multipart/form-data: a `vehicleId` field and an optional `photo` image.
 meRouter.post(
@@ -152,6 +184,62 @@ meRouter.delete(
 
     const ids = await collectedIds(userId)
     res.json({ user: publicUser(user), collectedIds: ids })
+  }),
+)
+
+// GET /api/me/leaderboard — top players by XP, plus the caller's own rank so it
+// can be pinned when they're outside the top slice. Ranking is xp desc, then id
+// asc as a stable tiebreak (matches the rank-count query below).
+const LEADERBOARD_LIMIT = 100
+
+interface LeaderRow {
+  id: string
+  username: string
+  avatar_url: string | null
+  level: number
+  xp: number
+}
+
+function leaderEntry(u: LeaderRow, rank: number) {
+  return {
+    rank,
+    id: String(u.id),
+    username: u.username,
+    avatarUrl: u.avatar_url,
+    level: u.level,
+    xp: u.xp,
+  }
+}
+
+meRouter.get(
+  '/leaderboard',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const me = (
+      await pool.query<LeaderRow>(
+        'select id, username, avatar_url, level, xp from users where id = $1',
+        [userId],
+      )
+    ).rows[0]
+
+    const [top, totalRes, rankRes] = await Promise.all([
+      pool.query<LeaderRow>(
+        `select id, username, avatar_url, level, xp from users
+         order by xp desc, id asc limit $1`,
+        [LEADERBOARD_LIMIT],
+      ),
+      pool.query<{ n: number }>('select count(*)::int n from users'),
+      pool.query<{ r: number }>(
+        'select count(*)::int + 1 r from users where xp > $1 or (xp = $1 and id < $2)',
+        [me.xp, me.id],
+      ),
+    ])
+
+    res.json({
+      total: totalRes.rows[0].n,
+      me: leaderEntry(me, rankRes.rows[0].r),
+      entries: top.rows.map((u, i) => leaderEntry(u, i + 1)),
+    })
   }),
 )
 

@@ -54,6 +54,12 @@ export const progressApi = {
       .delete<{ user: User; collectedIds: string[] }>(`/me/vehicles/${vehicleId}`)
       .then((r) => r.data),
 
+  /** Wipe all progress (vehicles, stops, quests, XP). Irreversible. */
+  resetProgress: () =>
+    api
+      .delete<{ user: User; collectedIds: string[]; visitedIds: string[] }>('/me/progress')
+      .then((r) => r.data),
+
   visitStop: (stopId: string) =>
     api
       .post<MutationResult & { visitedIds: string[] }>(`/me/stops/${stopId}/visit`)
