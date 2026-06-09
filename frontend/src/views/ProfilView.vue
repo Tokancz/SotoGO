@@ -22,8 +22,6 @@ function logout() {
   router.replace({ name: 'login' })
 }
 
-const push = ref(true)
-const sound = ref(true)
 const reportOpen = ref(false)
 </script>
 
@@ -70,25 +68,27 @@ const reportOpen = ref(false)
 
       <span class="eyebrow screen__eyebrow">Nastavení</span>
       <div class="settings">
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="bell" :size="20" />
           <span class="settings__label">Push notifikace</span>
-          <SgSwitch v-model="push" />
+          <span class="settings__soon">Brzy</span>
+          <SgSwitch :model-value="false" disabled />
         </div>
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="volume-2" :size="20" />
           <span class="settings__label">Zvuky a vibrace</span>
-          <SgSwitch v-model="sound" />
+          <span class="settings__soon">Brzy</span>
+          <SgSwitch :model-value="false" disabled />
         </div>
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="map" :size="20" />
           <span class="settings__label">Offline mapa</span>
-          <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
+          <span class="settings__soon">Brzy</span>
         </div>
-        <div class="settings__row">
+        <div class="settings__row settings__row--disabled">
           <SgIcon name="shield" :size="20" />
           <span class="settings__label">Soukromí</span>
-          <SgIcon class="settings__chevron" name="chevron-right" :size="18" />
+          <span class="settings__soon">Brzy</span>
         </div>
         <button type="button" class="settings__row settings__row--button" @click="reportOpen = true">
           <SgIcon name="bug" :size="20" />
@@ -163,6 +163,24 @@ const reportOpen = ref(false)
 }
 .settings__label { flex: 1; font-weight: var(--fw-medium); font-size: 15px; color: var(--text-primary); text-align: left; }
 .settings__chevron { color: var(--text-muted); }
+// Not-yet-implemented settings: dimmed, non-interactive, tagged "Brzy".
+.settings__row--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  :deep(.sg-switch) { pointer-events: none; cursor: not-allowed; }
+}
+.settings__soon {
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+}
 .settings__row--button {
   width: 100%;
   border: none;
