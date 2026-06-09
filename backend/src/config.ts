@@ -29,10 +29,26 @@ export const config = {
   // Optional: GitHub token + repo ("owner/name") for the in-app bug reporter.
   githubToken: process.env.GITHUB_TOKEN ?? '',
   githubRepo: process.env.GITHUB_REPO ?? '',
-  // Catch-photo uploads. Local disk for dev; point UPLOAD_DIR at a mounted
-  // volume (or swap for S3) in production. Files are served at /uploads.
+  // Optional: Anthropic API key for photo-based vehicle recognition (the capture
+  // flow's /api/recognize). Empty → the endpoint reports it's unconfigured and
+  // the client falls back to the manual model picker.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  recognizeModel: process.env.RECOGNIZE_MODEL ?? 'claude-haiku-4-5',
+  // Catch-photo uploads. When S3 (below) is configured, photos go to the bucket
+  // and survive restarts/redeploys; otherwise they're written to this local dir
+  // and served at /uploads (fine for dev, ephemeral on most hosts).
   uploadDir: resolve(process.env.UPLOAD_DIR ?? './uploads'),
   maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 6 * 1024 * 1024),
+  // S3-compatible object storage (e.g. Fly Tigris). Active when BUCKET_NAME and
+  // AWS_ENDPOINT_URL_S3 are set; `fly storage create` provisions all of these as
+  // secrets. Credentials are read from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+  // by the SDK. publicUrl overrides the default path-style base (endpoint/bucket).
+  s3: {
+    bucket: process.env.BUCKET_NAME ?? '',
+    endpoint: process.env.AWS_ENDPOINT_URL_S3 ?? '',
+    region: process.env.AWS_REGION ?? 'auto',
+    publicUrl: (process.env.S3_PUBLIC_URL ?? '').replace(/\/+$/, ''),
+  },
   // How often daily quests roll over, in hours. Periods are aligned to the Unix
   // epoch (UTC), so 24 = a fresh set at 00:00 UTC; set 6 for four sets a day.
   questPeriodHours: Number(process.env.QUEST_PERIOD_HOURS ?? 24),

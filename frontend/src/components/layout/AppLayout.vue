@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/game'
 import { useToastStore } from '@/stores/toast'
 import SgBottomNav, { type NavItem } from '@/components/game/SgBottomNav.vue'
-import CaptureSheet from '@/components/layout/CaptureSheet.vue'
 import SgToastHost from '@/components/ui/SgToastHost.vue'
+
+// Loaded on demand when the camera opens — keeps Tesseract.js (OCR) and the
+// capture UI out of the initial bundle.
+const CaptureSheet = defineAsyncComponent(() => import('@/components/layout/CaptureSheet.vue'))
 
 const route = useRoute()
 const router = useRouter()

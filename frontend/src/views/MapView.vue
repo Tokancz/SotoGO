@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { useGameStore } from '@/stores/game'
 import { catalogApi } from '@/services/catalog'
 import { useGeolocation } from '@/composables/useGeolocation'

@@ -4,5 +4,8 @@
 //   Fredoka        → display / headings / big game numbers (rounded, playful)
 //   DM Sans        → body / UI text (humanist grotesque, full Czech diacritics)
 //   JetBrains Mono → evidenční čísla / codes / stats (techy, even numerals)
-// Swap for a licensed face later by replacing this @import + the --font-* tokens.
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+// Swap for a licensed face later by replacing the --font-* tokens.
+//
+// The actual <link> tags live in index.html so the browser can fetch the font
+// CSS in parallel with (not chained behind) our own stylesheet bundle. A CSS
+// `@import url(...)` here would be render-blocking and serialized.

@@ -25,7 +25,7 @@ const initials = computed(() =>
 
 <template>
   <span class="sg-avatar" :class="{ 'sg-avatar--ring': ring }" :style="{ width: `${size}px`, height: `${size}px` }">
-    <img v-if="src" class="sg-avatar__img" :src="src" :alt="name" />
+    <img v-if="src" class="sg-avatar__img" :src="src" :alt="name" loading="lazy" decoding="async" />
     <span v-else class="sg-avatar__fallback" :style="{ fontSize: `${size * 0.4}px` }">{{ initials }}</span>
     <span v-if="level != null" class="sg-avatar__level">{{ level }}</span>
   </span>

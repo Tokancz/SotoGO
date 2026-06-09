@@ -139,7 +139,7 @@ const previewStyle = computed(() =>
         <div ref="panelEl" class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="vehicle-detail-title">
           <div class="sheet__handle" aria-hidden="true" />
           <div class="sheet__preview" :class="{ 'sheet__preview--photo': detailPhoto }" :style="detailPhoto ? undefined : previewStyle">
-            <img v-if="detailPhoto" :src="detailPhoto" :alt="detail.shortName" />
+            <img v-if="detailPhoto" :src="detailPhoto" :alt="detail.shortName" decoding="async" />
             <SgIcon v-else :name="detailCat.icon" :size="84" />
           </div>
           <div class="sheet__head">

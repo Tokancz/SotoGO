@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/game'
 import { useAuthStore } from '@/stores/auth'
@@ -9,7 +9,9 @@ import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgSwitch from '@/components/ui/SgSwitch.vue'
 import SgIcon from '@/components/SgIcon.vue'
-import ReportBugSheet from '@/components/layout/ReportBugSheet.vue'
+
+// Opened rarely, from a settings tap — no reason to ship it on the profile load.
+const ReportBugSheet = defineAsyncComponent(() => import('@/components/layout/ReportBugSheet.vue'))
 
 const game = useGameStore()
 const player = computed(() => game.player)
