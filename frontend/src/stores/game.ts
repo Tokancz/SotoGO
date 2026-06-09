@@ -10,11 +10,24 @@
 // until their backend exists. Category UI metadata (CATS) is design data.
 
 import { defineStore } from 'pinia'
-import type { Achievement, ApiStop, CatalogVehicle, CategoryKey, Player, Quest } from '@/types/game'
+import type {
+  Achievement,
+  ApiStop,
+  BattleResult,
+  BattleStart,
+  CatalogVehicle,
+  CategoryKey,
+  CaughtReveal,
+  GymState,
+  Player,
+  Quest,
+  VehicleStats,
+} from '@/types/game'
 import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
 import { catalogApi } from '@/services/catalog'
 import { progressApi } from '@/services/progress'
+import { gymsApi } from '@/services/gyms'
 import { mediaUrl } from '@/services/api'
 import { CATS } from '@/data/seed'
 
@@ -25,9 +38,13 @@ interface State {
   collectedIds: string[]
   /** The player's catch photo per collected vehicle id (absolute URL). */
   collectedPhotos: Record<string, string>
+  /** Combat stats per collected vehicle id (HP/Attack, gym deployment). */
+  vehicleStats: Record<string, VehicleStats>
   stops: ApiStop[]
-  /** Stop ids the player has visited. */
+  /** Stop ids the player has visited (unique). */
   visitedIds: string[]
+  /** stopId → ISO timestamp of the most recent visit (drives the re-visit cooldown). */
+  visitedAt: Record<string, string>
   /** This period's daily quests (from the server). */
   quests: Quest[]
   /** When the current quest period ends (ISO), for the countdown. */
@@ -41,8 +58,10 @@ export const useGameStore = defineStore('game', {
     catalog: [],
     collectedIds: [],
     collectedPhotos: {},
+    vehicleStats: {},
     stops: [],
     visitedIds: [],
+    visitedAt: {},
     quests: [],
     questsEndsAt: null,
     catalogLoaded: false,
@@ -189,9 +208,11 @@ export const useGameStore = defineStore('game', {
       const auth = useAuthStore()
       if (!auth.isAuthenticated) return
       try {
-        const { collectedIds, visitedIds, photos } = await progressApi.get()
+        const { collectedIds, visitedIds, visitedAt, photos, stats } = await progressApi.get()
         this.collectedIds = collectedIds
         this.visitedIds = visitedIds
+        this.visitedAt = visitedAt
+        this.vehicleStats = stats
         this.collectedPhotos = Object.fromEntries(
           Object.entries(photos).map(([id, path]) => [id, mediaUrl(path)!]),
         )
@@ -204,8 +225,8 @@ export const useGameStore = defineStore('game', {
      * Persist a catch, optionally with the player's photo. XP is awarded
      * server-side; the user (and the catch photo) are updated from the response.
      */
-    async collectVehicle(id: string, photo?: Blob | null) {
-      if (this.collectedIds.includes(id)) return
+    async collectVehicle(id: string, photo?: Blob | null): Promise<CaughtReveal | null> {
+      if (this.collectedIds.includes(id)) return null
       // Note: errors propagate so the capture flow can surface them — a swallowed
       // failure here means the catch is silently lost and never reaches the park.
       const res = await progressApi.collectVehicle(id, photo)
@@ -213,7 +234,10 @@ export const useGameStore = defineStore('game', {
       const url = mediaUrl(res.imageUrl)
       if (url) this.collectedPhotos = { ...this.collectedPhotos, [id]: url }
       useAuthStore().setUser(res.user)
+      void this.loadProgress() // pull in the new vehicle's rolled combat stats
       void this.loadQuests() // a catch may have advanced a quest — refresh progress
+      // Surface the rolled rarity + stats so the capture screen can reveal them.
+      return { rarity: res.rarity, hp: res.stats.hp, maxHp: res.stats.maxHp, attack: res.stats.attack }
     },
 
     /** Remove a collected vehicle from the park. Reclaims XP server-side. */
@@ -233,6 +257,7 @@ export const useGameStore = defineStore('game', {
       const res = await progressApi.resetProgress()
       this.collectedIds = res.collectedIds
       this.visitedIds = res.visitedIds
+      this.visitedAt = {}
       this.collectedPhotos = {}
       useAuthStore().setUser(res.user)
       void this.loadQuests()
@@ -244,16 +269,22 @@ export const useGameStore = defineStore('game', {
       if (v) await this.collectVehicle(v.id, photo)
     },
 
-    /** Persist a stop visit. XP is awarded server-side. */
-    async visitStop(id: string) {
-      if (this.visitedIds.includes(id)) return
+    /**
+     * Check in at a stop. First visit awards the full reward, a re-visit a small
+     * bonus; the server rejects re-visits during the cooldown. Returns the XP
+     * awarded, or null if the visit didn't go through (offline, on cooldown, …).
+     */
+    async visitStop(id: string): Promise<number | null> {
       try {
         const res = await progressApi.visitStop(id)
         this.visitedIds = res.visitedIds
+        this.visitedAt = res.visitedAt
         useAuthStore().setUser(res.user)
         void this.loadQuests() // a visit may have advanced a quest — refresh progress
+        return res.awardedXp
       } catch (err) {
         console.error('Uložení návštěvy selhalo:', err)
+        return null
       }
     },
 
@@ -304,6 +335,33 @@ export const useGameStore = defineStore('game', {
       const res = await progressApi.claimQuest(id)
       quest.claimed = true
       useAuthStore().setUser(res.user)
+    },
+
+    /** Deploy a vehicle to defend an open gym. Errors propagate to the view. */
+    async deployToGym(stopId: string, vehicleId: string): Promise<GymState> {
+      const state = await gymsApi.deploy(stopId, vehicleId)
+      await this.loadProgress() // the vehicle is now locked + at full HP
+      return state
+    },
+
+    /** Recall your defender from a gym you hold. */
+    async recallGym(stopId: string): Promise<GymState> {
+      const state = await gymsApi.recall(stopId)
+      await this.loadProgress() // the vehicle is freed + healed
+      return state
+    },
+
+    /** Begin a timed attack on a gym's defender. */
+    startBattle(stopId: string, vehicleId: string): Promise<BattleStart> {
+      return gymsApi.battleStart(stopId, vehicleId)
+    },
+
+    /** Resolve a battle (report taps landed). Refreshes user + stats on win. */
+    async resolveBattle(battleId: string, hits: number): Promise<BattleResult> {
+      const res = await gymsApi.battleResolve(battleId, hits)
+      useAuthStore().setUser(res.user)
+      await this.loadProgress() // gym takeover changes deployment + HP
+      return res
     },
   },
 })

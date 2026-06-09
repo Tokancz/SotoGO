@@ -8,6 +8,8 @@ export interface User {
   xp: number
   /** Daily login streak (consecutive days checked in). */
   streak: number
+  /** Whether this account has admin/dev tools (e.g. the map teleport). */
+  isAdmin?: boolean
 }
 
 export interface AuthResponse {

@@ -24,10 +24,15 @@ const seenUnlocked = ref<Set<string> | null>(null)
 watch(
   () => game.achievements.filter((a) => a.unlocked),
   (unlocked) => {
-    if (seenUnlocked.value === null) return // not seeded yet — ignore until ready
+    const seen = seenUnlocked.value
+    if (seen === null) return // not seeded yet — ignore until ready
+    // Forget any that are no longer unlocked (e.g. after a "Smazat data" reset),
+    // so they announce again when re-earned instead of being silently swallowed.
+    const unlockedTitles = new Set(unlocked.map((a) => a.title))
+    for (const title of [...seen]) if (!unlockedTitles.has(title)) seen.delete(title)
     for (const a of unlocked) {
-      if (seenUnlocked.value.has(a.title)) continue
-      seenUnlocked.value.add(a.title)
+      if (seen.has(a.title)) continue
+      seen.add(a.title)
       toasts.push({
         eyebrow: 'Nový achievement!',
         title: a.title,

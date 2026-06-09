@@ -45,6 +45,10 @@ const stars: Record<Rarity, string> = {
 
 const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
 const detailPhoto = computed(() => (detail.value ? game.collectedPhotos[detail.value.id] : undefined))
+const detailStats = computed(() => (detail.value ? game.vehicleStats[detail.value.id] : undefined))
+const detailDeployed = computed(() => detailStats.value?.deployedStopId != null)
+// The rolled rarity of this catch (per instance); falls back to the model's base.
+const detailRarity = computed<Rarity>(() => detailStats.value?.rarity ?? detail.value?.rarity ?? 'common')
 
 const confirmDelete = ref(false)
 const deleting = ref(false)
@@ -127,7 +131,7 @@ const previewStyle = computed(() =>
           :category="game.cats[item.v.category].label"
           :category-color="game.cats[item.v.category].color"
           :category-icon="game.cats[item.v.category].icon"
-          :rarity="item.collected ? item.v.rarity : undefined"
+          :rarity="item.collected ? (game.vehicleStats[item.v.id]?.rarity ?? item.v.rarity) : undefined"
           :is-new="item.collected && item.v.id === newestId"
           :image="item.collected ? game.collectedPhotos[item.v.id] : undefined"
           :compact="view === 'seznam'"
@@ -152,11 +156,16 @@ const previewStyle = computed(() =>
             <SgBadge :color="detailCat.color" variant="solid" :icon="detailCat.icon">{{ detailCat.label }}</SgBadge>
           </div>
           <div class="sheet__stats">
-            <SgStatTile :value="stars[detail.rarity]" label="Vzácnost" :color="`var(--rarity-${detail.rarity})`" icon="star" />
+            <SgStatTile :value="stars[detailRarity]" label="Vzácnost" :color="`var(--rarity-${detailRarity})`" icon="star" />
             <SgStatTile :value="detail.operator" label="Dopravce" color="var(--brand)" icon="award" />
+            <SgStatTile v-if="detailStats" :value="`${detailStats.hp} / ${detailStats.maxHp}`" label="HP" color="var(--brand)" icon="shield" />
+            <SgStatTile v-if="detailStats" :value="String(detailStats.attack)" label="Útok" color="var(--xp)" icon="zap" />
           </div>
           <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }}</div>
-          <button class="sheet__delete" :disabled="deleting" @click="confirmDelete = true">
+          <p v-if="detailDeployed" class="sheet__deployed">
+            <SgIcon name="award" :size="15" />Toto vozidlo právě brání gym. Stáhni ho z gymu, než ho odstraníš.
+          </p>
+          <button class="sheet__delete" :disabled="deleting || detailDeployed" @click="confirmDelete = true">
             <SgIcon name="trash-2" :size="16" />Odstranit z parku
           </button>
         </div>
@@ -243,6 +252,19 @@ const previewStyle = computed(() =>
   font-size: 13px;
   color: var(--text-secondary);
   svg { color: var(--text-muted); }
+}
+.sheet__deployed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 11px 13px;
+  border-radius: var(--radius-md);
+  background: var(--xp-subtle);
+  color: var(--gold-700);
+  font-size: 13px;
+  line-height: 1.35;
+  svg { flex: none; }
 }
 .sheet__delete {
   display: flex;

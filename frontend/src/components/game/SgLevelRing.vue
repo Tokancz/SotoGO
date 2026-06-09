@@ -39,9 +39,11 @@ const offset = computed(() => {
       />
     </svg>
     <div class="sg-ring__center">
-      <span v-if="label" class="sg-ring__eyebrow" :style="{ fontSize: `${size * 0.11}px` }">{{ label }}</span>
-      <span class="sg-ring__value" :style="{ fontSize: `${size * 0.34}px` }">{{ level }}</span>
-      <span v-if="subText" class="sg-ring__sub" :style="{ fontSize: `${size * 0.11}px` }">{{ subText }}</span>
+      <slot>
+        <span v-if="label" class="sg-ring__eyebrow" :style="{ fontSize: `${size * 0.11}px` }">{{ label }}</span>
+        <span class="sg-ring__value" :style="{ fontSize: `${size * 0.34}px` }">{{ level }}</span>
+        <span v-if="subText" class="sg-ring__sub" :style="{ fontSize: `${size * 0.11}px` }">{{ subText }}</span>
+      </slot>
     </div>
   </div>
 </template>

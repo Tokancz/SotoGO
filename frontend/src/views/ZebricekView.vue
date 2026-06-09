@@ -1,13 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { leaderboardApi, type LeaderboardData, type LeaderboardEntry } from '@/services/leaderboard'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  leaderboardApi,
+  type LeaderboardData,
+  type LeaderboardEntry,
+  type LeaderboardMetric,
+} from '@/services/leaderboard'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgAvatar from '@/components/ui/SgAvatar.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import SgSegmentedControl from '@/components/ui/SgSegmentedControl.vue'
 
 const data = ref<LeaderboardData | null>(null)
 const loading = ref(true)
 const error = ref(false)
+const metric = ref<LeaderboardMetric>('xp')
+
+const metricOptions: { value: LeaderboardMetric; label: string; icon: string }[] = [
+  { value: 'xp', label: 'XP', icon: 'star' },
+  { value: 'battles', label: 'Bitvy', icon: 'zap' },
+  { value: 'time', label: 'Čas v gymu', icon: 'award' },
+]
 
 // Whether the player already appears in the returned top slice — if not, their
 // own row is pinned separately at the bottom.
@@ -19,18 +32,36 @@ const subtitle = computed(() =>
   data.value ? `${data.value.total} ${data.value.total === 1 ? 'hráč' : 'hráčů'}` : undefined,
 )
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  error.value = false
   try {
-    data.value = await leaderboardApi.get()
+    data.value = await leaderboardApi.get(metric.value)
   } catch (err) {
     console.error('Načtení žebříčku selhalo:', err)
     error.value = true
   } finally {
     loading.value = false
   }
-})
+}
 
-const xp = (n: number) => `${n.toLocaleString('cs-CZ')} XP`
+onMounted(load)
+watch(metric, load)
+
+/** Human-readable holding time, e.g. "2 h 5 m" / "12 m" / "0 m". */
+function fmtTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  return h > 0 ? `${h} h ${m} m` : `${m} m`
+}
+
+/** The value shown in a row's right column, per the active metric. */
+function metricValue(e: LeaderboardEntry): string {
+  if (metric.value === 'battles') return `${e.battlesWon}×`
+  if (metric.value === 'time') return fmtTime(e.gymSeconds)
+  return `${e.xp.toLocaleString('cs-CZ')} XP`
+}
+
 const isMe = (e: LeaderboardEntry) => e.id === data.value?.me.id
 const rankClass = (rank: number) =>
   rank <= 3 ? `row__rank--${({ 1: 'gold', 2: 'silver', 3: 'bronze' } as const)[rank as 1 | 2 | 3]}` : ''
@@ -41,6 +72,10 @@ const rankClass = (rank: number) =>
     <TopBar title="Žebříček" :subtitle="subtitle" />
 
     <div class="screen__scroll">
+      <div class="metricbar">
+        <SgSegmentedControl v-model="metric" :options="metricOptions" full-width />
+      </div>
+
       <p v-if="loading" class="hint">Načítám žebříček…</p>
       <p v-else-if="error" class="hint">Žebříček se nepodařilo načíst. Zkus to později.</p>
 
@@ -53,7 +88,7 @@ const rankClass = (rank: number) =>
               <span class="row__name">{{ e.username }}<span v-if="isMe(e)" class="row__you">Ty</span></span>
               <span class="row__lvl">Level {{ e.level }}</span>
             </span>
-            <span class="row__xp">{{ xp(e.xp) }}</span>
+            <span class="row__xp">{{ metricValue(e) }}</span>
           </li>
         </ul>
 
@@ -68,7 +103,7 @@ const rankClass = (rank: number) =>
                 <span class="row__name">{{ data.me.username }}<span class="row__you">Ty</span></span>
                 <span class="row__lvl">Level {{ data.me.level }}</span>
               </span>
-              <span class="row__xp">{{ xp(data.me.xp) }}</span>
+              <span class="row__xp">{{ metricValue(data.me) }}</span>
             </li>
           </ul>
         </div>
@@ -82,6 +117,8 @@ const rankClass = (rank: number) =>
 
 .screen { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .screen__scroll { flex: 1; overflow-y: auto; padding: 14px 16px 90px; }
+
+.metricbar { margin-bottom: 14px; }
 
 .hint { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
 

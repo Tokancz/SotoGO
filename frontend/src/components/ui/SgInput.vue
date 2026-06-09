@@ -63,7 +63,8 @@ const fieldId = computed(
   height: 48px;
   transition: box-shadow 0.12s ease, background 0.12s ease;
 
-  &:focus-within { box-shadow: inset 0 0 0 2px var(--brand), var(--focus-ring); }
+  // Single clean border on focus — no outer halo (which read as a second border).
+  &:focus-within { box-shadow: inset 0 0 0 2px var(--brand); }
 }
 .sg-input--error { box-shadow: inset 0 0 0 2px var(--danger-500); }
 .sg-input__icon {

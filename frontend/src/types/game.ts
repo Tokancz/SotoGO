@@ -126,6 +126,63 @@ export interface ApiStop {
   isGym: boolean;
 }
 
+/** Combat stats for a caught vehicle (rolled on catch, from GET /me/progress). */
+export interface VehicleStats {
+  /** The catch's rolled rarity (per instance), biased by the model's base rarity. */
+  rarity: Rarity;
+  /** Current HP — full unless the vehicle is defending a gym and took damage. */
+  hp: number;
+  maxHp: number;
+  attack: number;
+  /** Stop id of the gym this vehicle is defending, or null if idle. */
+  deployedStopId: string | null;
+}
+
+/** What a catch rolled, surfaced on the capture reward screen. */
+export interface CaughtReveal {
+  rarity: Rarity;
+  hp: number;
+  maxHp: number;
+  attack: number;
+}
+
+/** A gym's defender + holder (from GET /me/gyms/:stopId). */
+export interface GymState {
+  holder: { id: string; username: string; avatarUrl: string | null } | null;
+  defender: {
+    model: string;
+    shortName: string;
+    rarity: Rarity;
+    hp: number;
+    maxHp: number;
+    attack: number;
+  } | null;
+  heldSince: string | null;
+  /** Whether the caller is the current holder. */
+  isMine: boolean;
+}
+
+/** Parameters returned when a battle starts (POST /me/gyms/:stopId/battle/start). */
+export interface BattleStart {
+  battleId: string;
+  defenderHp: number;
+  attackerAttack: number;
+  /** How long the attacker has to drain the defender (ms). */
+  durationMs: number;
+  /** Max taps/sec the server will credit (the client caps its own tap rate to match). */
+  maxTapsPerSec: number;
+}
+
+/** Outcome of resolving a battle (POST /me/gyms/battle/:id/resolve). */
+export interface BattleResult {
+  won: boolean;
+  awardedXp: number;
+  /** The defender's HP afterwards (the new defender's if you won), or null if the gym is now open. */
+  defenderHp: number | null;
+  /** True when the defender vanished mid-battle (recalled/already taken). */
+  voided?: boolean;
+}
+
 export interface Player {
   name: string;
   handle: string;

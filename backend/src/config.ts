@@ -52,4 +52,10 @@ export const config = {
   // How often daily quests roll over, in hours. Periods are aligned to the Unix
   // epoch (UTC), so 24 = a fresh set at 00:00 UTC; set 6 for four sets a day.
   questPeriodHours: Number(process.env.QUEST_PERIOD_HOURS ?? 24),
+  // Comma-separated emails granted admin (unlocks dev tools like the map teleport).
+  // Matched case-insensitively against the account email.
+  adminEmails: (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
 }

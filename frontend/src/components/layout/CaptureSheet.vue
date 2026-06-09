@@ -6,7 +6,7 @@ import { useDialog } from '@/composables/useDialog'
 import { downscaleCanvas, downscaleImageFile } from '@/lib/image'
 import { resolveFleetNumber } from '@/data/fleet'
 import { recognizeApi, type RecognizeResult } from '@/services/recognize'
-import type { CatalogVehicle, CategoryKey } from '@/types/game'
+import type { CatalogVehicle, CaughtReveal, CategoryKey, Rarity } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
 
@@ -41,6 +41,14 @@ const candidateIds = ref<string[]>([])
 
 const saving = ref(false)
 const saveError = ref(false)
+// What the catch rolled (rarity + stats), revealed on the reward screen once saved.
+const revealed = ref<CaughtReveal | null>(null)
+const rarityLabels: Record<Rarity, string> = {
+  common: 'Běžná',
+  rare: 'Vzácná',
+  epic: 'Epická',
+  legendary: 'Legendární',
+}
 
 const cat = computed(() => (matched.value ? game.cats[matched.value.category] : null))
 const alreadyHave = computed(() =>
@@ -161,6 +169,7 @@ async function restart() {
   matched.value = null
   scanError.value = false
   saveError.value = false
+  revealed.value = null
   stillUrl.value = ''
   photoBlob.value = null
   candidateIds.value = []
@@ -171,20 +180,29 @@ async function restart() {
 
 async function addToPark() {
   if (!matched.value || saving.value) return
+  // Already revealed (or it's a dupe with nothing to roll) → this tap just finishes.
+  if (revealed.value || alreadyHave.value) {
+    emit('caught')
+    emit('close')
+    return
+  }
   saving.value = true
   saveError.value = false
   try {
-    await game.collectVehicle(matched.value.id, photoBlob.value)
+    const res = await game.collectVehicle(matched.value.id, photoBlob.value)
+    if (res) {
+      revealed.value = res // stay open to reveal the rolled rarity + stats
+    } else {
+      emit('caught')
+      emit('close')
+    }
   } catch (err) {
     // Keep the sheet open so the catch isn't lost — let the player retry.
     console.error('Uložení úlovku selhalo:', err)
     saveError.value = true
-    return
   } finally {
     saving.value = false
   }
-  emit('caught')
-  emit('close')
 }
 </script>
 
@@ -323,6 +341,18 @@ async function addToPark() {
       </div>
       <div class="capture__sub">{{ cat?.label }} · {{ matched?.operator }}</div>
       <div v-if="!alreadyHave" class="capture__xp"><SgIcon name="zap" :size="20" /> +{{ reward }} XP</div>
+
+      <!-- Reveal what this catch rolled (rarity + combat stats). -->
+      <div v-if="revealed" class="capture__reveal">
+        <div class="capture__rarity" :style="{ color: `var(--rarity-${revealed.rarity})` }">
+          {{ rarityLabels[revealed.rarity] }}
+        </div>
+        <div class="capture__statpills">
+          <span class="capture__statpill"><SgIcon name="shield" :size="15" />{{ revealed.maxHp }} HP</span>
+          <span class="capture__statpill"><SgIcon name="zap" :size="15" />{{ revealed.attack }} ATK</span>
+        </div>
+      </div>
+
       <div v-if="saveError" class="capture__saveerror">
         <SgIcon name="triangle-alert" :size="15" /> Uložení se nezdařilo. Zkus to znovu.
       </div>
@@ -334,7 +364,7 @@ async function addToPark() {
         :disabled="saving"
         @click="addToPark"
       >
-        {{ saving ? 'Ukládám…' : saveError ? 'Zkusit znovu' : alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
+        {{ saving ? 'Ukládám…' : saveError ? 'Zkusit znovu' : revealed ? 'Hotovo' : alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
       </SgButton>
     </div>
   </div>
@@ -575,6 +605,37 @@ async function addToPark() {
   border-radius: var(--radius-pill);
   margin-bottom: 30px;
 }
+.capture__reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.capture__rarity {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 16px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid currentColor;
+}
+.capture__statpills { display: flex; gap: 10px; }
+.capture__statpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-bold);
+  font-size: 15px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+}
+
 .capture__saveerror {
   display: inline-flex;
   align-items: center;

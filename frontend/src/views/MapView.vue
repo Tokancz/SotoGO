@@ -3,20 +3,66 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useGameStore } from '@/stores/game'
+import { useAuthStore } from '@/stores/auth'
 import { catalogApi } from '@/services/catalog'
+import { gymsApi } from '@/services/gyms'
 import { useGeolocation } from '@/composables/useGeolocation'
-import type { ApiStop } from '@/types/game'
+import { useToastStore } from '@/stores/toast'
+import type { ApiStop, BattleResult, CatalogVehicle, GymState, VehicleStats } from '@/types/game'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import SgAvatar from '@/components/ui/SgAvatar.vue'
+import SgProgressBar from '@/components/ui/SgProgressBar.vue'
+import BattleOverlay from '@/components/game/BattleOverlay.vue'
 
 const game = useGameStore()
+const auth = useAuthStore()
 const geo = useGeolocation()
+const toast = useToastStore()
+
+// Admin-only dev tools (location teleport). Gated on the account's isAdmin flag.
+const isAdmin = computed(() => auth.user?.isAdmin === true)
+const devOpen = ref(false)
+const devTeleport = ref(false) // when on, clicking the map teleports the player
+
+// The floating buttons (locate + dev tools) ride above whichever bottom sheet is
+// open so the sheet never overlaps them. We measure the active sheet's live
+// height (stop and gym sheets differ, and the gym sheet grows as it loads) and
+// lift the buttons by it.
+const sheetEl = ref<HTMLElement | null>(null)
+const sheetHeight = ref(0)
+let sheetRO: ResizeObserver | null = null
+watch(sheetEl, (el) => {
+  sheetRO?.disconnect()
+  sheetRO = null
+  if (el && typeof ResizeObserver !== 'undefined') {
+    sheetRO = new ResizeObserver(() => (sheetHeight.value = el.offsetHeight))
+    sheetRO.observe(el)
+    sheetHeight.value = el.offsetHeight
+  } else {
+    sheetHeight.value = 0
+  }
+})
+const SHEET_BOTTOM = 14 // the sheet's own bottom offset
+const FAB_GAP = 14 // gap between the sheet top and the lowest button
+// Bottom offset for the locate button, and for the dev tools stacked above it.
+const locateBottom = computed(() =>
+  sheetHeight.value > 0 ? `${sheetHeight.value + SHEET_BOTTOM + FAB_GAP}px` : '24px',
+)
+const devBottom = computed(() =>
+  sheetHeight.value > 0 ? `${sheetHeight.value + SHEET_BOTTOM + FAB_GAP + 56}px` : '80px',
+)
 
 const DEFAULT_LOC = { lat: 50.0865, lng: 14.4319 } // Prague centre — fallback only
 const VISIT_RADIUS_M = 75 // how close you must physically be to check in
-const RELOAD_DISTANCE_M = 3000 // refetch nearby stops after moving this far
-const LOAD_KM = 10 // radius of stops loaded around the player
-const MIN_ZOOM = 12 // don't let the user zoom out past the loaded area
+// Metro: GPS is poor underground and stations span several entrances (the stored
+// point is roughly their centre), so allow a wider check-in radius.
+const METRO_VISIT_RADIUS_M = 150
+const REVISIT_XP = 10 // a re-visit (after the cooldown) is worth a small flat bonus
+const VISIT_COOLDOWN_MS = 30 * 60_000 // can't re-check-in at the same stop until this elapses
+const RELOAD_DISTANCE_M = 1500 // refetch nearby stops after moving this far
+const LOAD_KM = 3 // radius of stops loaded around the player (kept small for mobile)
+const MIN_ZOOM = 13 // don't let the user zoom out past the loaded area
 
 const LINE_HEX: Record<string, string> = { A: '#00A562', B: '#F7A600', C: '#D9282F' }
 const CAT_HEX: Record<string, string> = {
@@ -44,6 +90,13 @@ const playerIcon = L.divIcon({
 const mapEl = ref<HTMLDivElement | null>(null)
 const map = shallowRef<L.Map | null>(null)
 const selected = ref<ApiStop | null>(null)
+// Gym battle state for the selected gym (null while loading or for non-gyms).
+const gymState = ref<GymState | null>(null)
+// Which vehicle picker is open ('deploy' to defend, 'battle' to attack), if any.
+const picker = ref<null | 'deploy' | 'battle'>(null)
+// Active battle (drives the full-screen BattleOverlay).
+const battle = ref<null | { stopId: string; vehicleId: string; attackerName: string }>(null)
+const gymBusy = ref(false)
 const markersById: Record<string, L.Marker> = {}
 let trackLayer: L.LayerGroup | null = null
 let stopLayer: L.LayerGroup | null = null
@@ -53,10 +106,14 @@ let lastLoadCenter: { lat: number; lng: number } | null = null
 let following = true // keep the map centred on the player until they pan away
 let initialized = false
 let destroyed = false // set on unmount so async work can't touch a dead map
+let mapAnimating = false // true during a zoom animation (defer marker churn until idle)
 let invalidateTimer: ReturnType<typeof setTimeout> | undefined
 
 const playerLoc = ref({ ...DEFAULT_LOC })
 const usingFallback = ref(false)
+// Ticks every 30s so cooldown countdowns + marker states re-evaluate over time.
+const now = ref(Date.now())
+let stateTimer: ReturnType<typeof setInterval> | undefined
 
 const noStopsNearby = ref(false)
 const noticeText = computed(() =>
@@ -108,6 +165,18 @@ function rewardFor(stop: ApiStop): number {
   return 20
 }
 
+// Per-stop check-in state: never visited, recently visited (on cooldown), or
+// visited but ready to check in again.
+type VisitState = 'new' | 'cooldown' | 'ready'
+function visitState(stop: ApiStop): VisitState {
+  const ts = game.visitedAt[stop.id]
+  if (!ts) return 'new'
+  return now.value - new Date(ts).getTime() < VISIT_COOLDOWN_MS ? 'cooldown' : 'ready'
+}
+function visitRadiusFor(stop: ApiStop): number {
+  return stop.categories.includes('metro') ? METRO_VISIT_RADIUS_M : VISIT_RADIUS_M
+}
+
 function lineColor(line: string): string {
   const cat = lineCats.value[line]
   if (cat) return CAT_HEX[cat] ?? 'var(--slate-500)'
@@ -120,23 +189,44 @@ const distanceMeters = computed(() =>
     : Infinity,
 )
 const distanceLabel = computed(() => (selected.value ? fmtDist(distanceMeters.value) : ''))
-const selectedVisited = computed(() =>
-  selected.value ? game.visitedSet.has(selected.value.id) : false,
+const selectedState = computed<VisitState>(() =>
+  selected.value ? visitState(selected.value) : 'new',
+)
+const selectedReward = computed(() =>
+  selected.value ? (selectedState.value === 'ready' ? REVISIT_XP : rewardFor(selected.value)) : 0,
 )
 const canVisit = computed(
-  () => selected.value != null && !selectedVisited.value && distanceMeters.value <= VISIT_RADIUS_M,
+  () =>
+    selected.value != null &&
+    selectedState.value !== 'cooldown' &&
+    distanceMeters.value <= visitRadiusFor(selected.value),
 )
+// Minutes until the selected stop can be checked in again (only on cooldown).
+const cooldownLabel = computed(() => {
+  if (!selected.value || selectedState.value !== 'cooldown') return ''
+  const ts = game.visitedAt[selected.value.id]
+  const leftMs = Math.max(0, VISIT_COOLDOWN_MS - (now.value - new Date(ts).getTime()))
+  return `${Math.max(1, Math.ceil(leftMs / 60_000))} min`
+})
+
+function stateClass(state: VisitState): string {
+  return state === 'cooldown'
+    ? ' sg-stop-pin--cooldown'
+    : state === 'ready'
+      ? ' sg-stop-pin--ready'
+      : ''
+}
 
 function addMarker(stop: ApiStop): L.Marker {
   const { color, label } = pinStyle(stop)
-  const visited = game.visitedSet.has(stop.id) ? ' sg-stop-pin--visited' : ''
   const gym = stop.isGym ? ' sg-stop-pin--gym' : ''
   const icon = L.divIcon({
     className: '',
     iconSize: [34, 42],
     iconAnchor: [17, 42],
-    html: `<div class="sg-stop-pin${gym}${visited}" style="--pin:${color}">
+    html: `<div class="sg-stop-pin${gym}${stateClass(visitState(stop))}" style="--pin:${color}">
              <div class="sg-stop-pin__head"><span>${label}</span></div>
+             <div class="sg-stop-pin__badge"></div>
            </div>`,
   })
   const marker = L.marker([stop.lat, stop.lng], { icon })
@@ -146,13 +236,36 @@ function addMarker(stop: ApiStop): L.Marker {
   return marker
 }
 
-function renderStops() {
-  for (const stop of game.stops) addMarker(stop)
+/** Re-apply a pin's visit-state class (after a visit, or as cooldowns elapse). */
+function applyState(stop: ApiStop) {
+  const el = markersById[stop.id]?.getElement()?.querySelector<HTMLElement>('.sg-stop-pin')
+  if (!el) return
+  el.classList.remove('sg-stop-pin--cooldown', 'sg-stop-pin--ready')
+  const cls = stateClass(visitState(stop)).trim()
+  if (cls) el.classList.add(cls)
 }
 
-function clearStops() {
-  stopLayer?.clearLayers()
-  for (const id of Object.keys(markersById)) delete markersById[id]
+function refreshMarkerStates() {
+  for (const stop of game.stops) applyState(stop)
+}
+
+/**
+ * Reconcile pins with the loaded stops: add new ones, remove gone ones, leave
+ * the rest untouched. Avoids tearing out every marker (clearLayers) on each
+ * reload, which could race with an in-flight map animation — Leaflet then
+ * dereferences a removed icon ("Cannot read properties of null … parentNode").
+ */
+function syncStops() {
+  const want = new Set(game.stops.map((s) => s.id))
+  for (const id of Object.keys(markersById)) {
+    if (!want.has(id)) {
+      stopLayer?.removeLayer(markersById[id])
+      delete markersById[id]
+    }
+  }
+  for (const stop of game.stops) {
+    if (!markersById[stop.id]) addMarker(stop)
+  }
 }
 
 async function drawTracks(stop: ApiStop) {
@@ -170,13 +283,20 @@ async function drawTracks(stop: ApiStop) {
   lineCats.value = cats
 
   routes.sort((a, b) => (TRACK_ORDER[a.category] ?? 0) - (TRACK_ORDER[b.category] ?? 0))
-  for (const r of routes) {
-    L.polyline(r.points, {
-      color: CAT_HEX[r.category] ?? '#888',
-      weight: trackWeight(r.category),
-      opacity: 0.7,
-      lineJoin: 'round',
-    }).addTo(trackLayer)
+  // Guard the Leaflet writes: if we're torn down between here and now, adding to
+  // a removed layer can throw ("parentNode of null"). Never let it reject.
+  try {
+    for (const r of routes) {
+      if (destroyed || !trackLayer) return
+      L.polyline(r.points, {
+        color: CAT_HEX[r.category] ?? '#888',
+        weight: trackWeight(r.category),
+        opacity: 0.7,
+        lineJoin: 'round',
+      }).addTo(trackLayer)
+    }
+  } catch {
+    /* map torn down mid-draw — ignore */
   }
 }
 
@@ -239,15 +359,26 @@ async function loadAround(loc: { lat: number; lng: number }) {
   if (destroyed || !map.value) return // unmounted while loading
   lastLoadCenter = { ...loc }
   noStopsNearby.value = game.stops.length === 0
-  // Lock panning to the loaded area so the user can't drift into empty space.
-  map.value?.setMaxBounds(boundsAround(loc, LOAD_KM))
-  clearStops()
-  renderStops()
-  selected.value =
-    [...game.stops].sort(
-      (a, b) =>
-        haversine(loc.lat, loc.lng, a.lat, a.lng) - haversine(loc.lat, loc.lng, b.lat, b.lng),
-    )[0] ?? null
+
+  // Touching bounds/markers mid-zoom-animation can make Leaflet dereference a
+  // removed icon — defer until the current zoom animation settles.
+  const apply = () => {
+    if (destroyed || !map.value) return
+    try {
+      // Lock panning to the loaded area so the user can't drift into empty space.
+      map.value.setMaxBounds(boundsAround(loc, LOAD_KM))
+      syncStops()
+      selected.value =
+        [...game.stops].sort(
+          (a, b) =>
+            haversine(loc.lat, loc.lng, a.lat, a.lng) - haversine(loc.lat, loc.lng, b.lat, b.lng),
+        )[0] ?? null
+    } catch {
+      /* torn down mid-apply — ignore */
+    }
+  }
+  if (mapAnimating) map.value.once('zoomend', apply)
+  else apply()
 }
 
 // Live position → follow the player and refetch stops when they move far.
@@ -308,16 +439,54 @@ onMounted(() => {
   m.on('dragstart', () => {
     following = false
   })
+  // Dev teleport: clicking the map jumps the player there (admin tool only).
+  m.on('click', (e: L.LeafletMouseEvent) => {
+    if (devTeleport.value) teleport(e.latlng.lat, e.latlng.lng)
+  })
+  // Track zoom animations so we don't churn markers while one is running.
+  m.on('zoomstart', () => {
+    mapAnimating = true
+  })
+  m.on('zoomend', () => {
+    mapAnimating = false
+  })
   invalidateTimer = setTimeout(() => m.invalidateSize(), 60)
   geo.start()
+  // Advance cooldown countdowns + flip pins from "cooldown" to "ready" over time.
+  stateTimer = setInterval(() => {
+    now.value = Date.now()
+    refreshMarkerStates()
+  }, 30_000)
 })
 
 onBeforeUnmount(() => {
   destroyed = true
   clearTimeout(invalidateTimer)
+  clearTimeout(searchTimer)
+  clearInterval(stateTimer)
+  sheetRO?.disconnect()
   geo.stop()
-  map.value?.remove()
+  // Tear the map down defensively. Because there's no route transition, Vue
+  // unmounts us synchronously *inside* the router navigation, so any throw here
+  // rejects router.push() → "Uncaught (in promise) … parentNode of null". Null
+  // the ref FIRST (so late async work bails on `!map.value`), then drop our
+  // listeners and cancel animations before removing, so no stray Leaflet
+  // callback fires against a detached pane. Whole thing is swallowed regardless.
+  const m = map.value
   map.value = null
+  trackLayer = null
+  stopLayer = null
+  playerMarker = null
+  accuracyCircle = null
+  if (m) {
+    try {
+      m.off()
+      m.stop()
+      m.remove()
+    } catch {
+      /* map is going away regardless — never let this block navigation */
+    }
+  }
 })
 
 function recenter() {
@@ -325,11 +494,124 @@ function recenter() {
   map.value?.setView([playerLoc.value.lat, playerLoc.value.lng], 16)
 }
 
+// ── Dev: location teleport (admin) ───────────────────────────────────────────
+// Mock the player position; the geo.coords watcher repositions + reloads stops.
+function teleport(lat: number, lng: number) {
+  following = true
+  geo.setMock({ lat, lng })
+}
+function teleportToSelected() {
+  if (selected.value) teleport(selected.value.lat, selected.value.lng)
+}
+function resetGps() {
+  geo.clearMock()
+  following = true
+  toast.push({ title: 'Zpět na reálnou GPS', icon: 'locate-fixed' })
+}
+
 async function visitSelected() {
   const stop = selected.value
   if (!stop || !canVisit.value) return
-  await game.visitStop(stop.id)
-  markersById[stop.id]?.getElement()?.firstElementChild?.classList.add('sg-stop-pin--visited')
+  const awarded = await game.visitStop(stop.id)
+  if (awarded != null) {
+    now.value = Date.now() // the stop is now on cooldown
+    applyState(stop)
+  }
+}
+
+// ── Gyms ─────────────────────────────────────────────────────────────────────
+// You must be within the visit radius to deploy/recall/battle, same as check-ins.
+const inRange = computed(
+  () => selected.value != null && distanceMeters.value <= visitRadiusFor(selected.value),
+)
+
+interface IdleVehicle { v: CatalogVehicle; stats: VehicleStats }
+// Collected vehicles not currently defending a gym — the deploy/attack roster.
+const idleVehicles = computed<IdleVehicle[]>(() =>
+  game.catalog
+    .filter((v) => game.collectedSet.has(v.id))
+    .map((v) => ({ v, stats: game.vehicleStats[v.id] }))
+    .filter((x): x is IdleVehicle => x.stats != null && x.stats.deployedStopId == null),
+)
+
+async function loadGymState(stopId: string) {
+  gymState.value = null
+  try {
+    gymState.value = await gymsApi.getState(stopId)
+  } catch {
+    gymState.value = null
+  }
+}
+
+// Load (or clear) gym state whenever the selected stop changes.
+watch(selected, (s) => {
+  picker.value = null
+  if (s?.isGym) void loadGymState(s.id)
+  else gymState.value = null
+})
+
+function gymError(err: unknown): string {
+  return (
+    (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+    'Akce se nezdařila.'
+  )
+}
+
+async function chooseVehicle(item: IdleVehicle) {
+  const stop = selected.value
+  if (!stop || gymBusy.value) return
+  if (picker.value === 'deploy') {
+    gymBusy.value = true
+    try {
+      gymState.value = await game.deployToGym(stop.id, item.v.id)
+      toast.push({
+        title: 'Vozidlo nasazeno',
+        description: `${item.v.shortName} teď brání ${stop.name}`,
+        icon: 'shield',
+        color: 'var(--brand)',
+      })
+    } catch (err) {
+      toast.push({ title: 'Nasazení selhalo', description: gymError(err), icon: 'triangle-alert' })
+    } finally {
+      gymBusy.value = false
+      picker.value = null
+    }
+  } else if (picker.value === 'battle') {
+    battle.value = { stopId: stop.id, vehicleId: item.v.id, attackerName: item.v.shortName }
+    picker.value = null
+  }
+}
+
+async function recallGym() {
+  const stop = selected.value
+  if (!stop || gymBusy.value) return
+  gymBusy.value = true
+  try {
+    gymState.value = await game.recallGym(stop.id)
+    toast.push({ title: 'Vozidlo staženo', icon: 'rotate-ccw', color: 'var(--brand)' })
+  } catch (err) {
+    toast.push({ title: 'Stažení selhalo', description: gymError(err), icon: 'triangle-alert' })
+  } finally {
+    gymBusy.value = false
+  }
+}
+
+function onBattleFinished(result: BattleResult) {
+  if (result.won) {
+    toast.push({
+      eyebrow: 'Vítězství!',
+      title: 'Gym je tvůj',
+      description: `+${result.awardedXp} XP`,
+      icon: 'trophy',
+      color: 'var(--xp)',
+    })
+  }
+}
+
+function onBattleClose() {
+  const stopId = battle.value?.stopId
+  battle.value = null
+  if (stopId) void loadGymState(stopId) // reflect the new defender/holder
 }
 </script>
 
@@ -375,13 +657,42 @@ async function visitSelected() {
       <SgIcon name="navigation" :size="14" /> {{ noticeText }}
     </div>
 
-    <!-- Locate FAB -->
-    <button class="locate" aria-label="Moje poloha" @click="recenter">
+    <!-- Locate FAB — sits in the bottom-right corner, lifting above the stop
+         sheet when one is open so it never overlaps it. -->
+    <button class="locate" :style="{ bottom: locateBottom }" aria-label="Moje poloha" @click="recenter">
       <SgIcon name="locate-fixed" :size="22" />
     </button>
 
-    <!-- Bottom stop sheet -->
-    <div v-if="selected" class="stopsheet">
+    <!-- Admin dev tools: teleport the player to test gyms without walking there.
+         Sits just above the locate (recenter) button, bottom-right. -->
+    <div v-if="isAdmin" class="dev" :style="{ bottom: devBottom }">
+      <div v-if="devOpen" class="dev__panel">
+        <p class="dev__title"><SgIcon name="target" :size="13" /> DEV · poloha</p>
+        <button class="dev__row" :class="{ 'is-on': devTeleport }" @click="devTeleport = !devTeleport">
+          <SgIcon name="map-pin" :size="15" />{{ devTeleport ? 'Klikni do mapy…' : 'Teleport klikem' }}
+        </button>
+        <button class="dev__row" :disabled="!selected" @click="teleportToSelected">
+          <SgIcon name="navigation" :size="15" />Na vybranou zastávku
+        </button>
+        <button class="dev__row" :disabled="!geo.mocked.value" @click="resetGps">
+          <SgIcon name="locate-fixed" :size="15" />Zpět na GPS
+        </button>
+        <p v-if="geo.mocked.value" class="dev__coords">
+          {{ playerLoc.lat.toFixed(5) }}, {{ playerLoc.lng.toFixed(5) }}
+        </p>
+      </div>
+      <button
+        class="dev__fab"
+        :class="{ 'dev__fab--on': devTeleport || geo.mocked.value }"
+        aria-label="Dev nástroje"
+        @click="devOpen = !devOpen"
+      >
+        <SgIcon name="target" :size="20" />
+      </button>
+    </div>
+
+    <!-- Bottom stop sheet (regular stops; gyms get their own sheet below) -->
+    <div v-if="selected && !selected.isGym" ref="sheetEl" class="stopsheet">
       <section class="stopsheet__panel" aria-labelledby="stop-name">
         <div class="stopsheet__info">
           <h2 id="stop-name" class="stopsheet__name">
@@ -401,14 +712,122 @@ async function visitSelected() {
           </div>
         </div>
         <div class="stopsheet__action">
-          <SgBadge v-if="selectedVisited" tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
-          <button v-else-if="canVisit" class="stopsheet__reward" @click="visitSelected">
-            <SgIcon name="zap" :size="16" />+{{ rewardFor(selected) }} XP
+          <button v-if="canVisit" class="stopsheet__reward" @click="visitSelected">
+            <SgIcon :name="selectedState === 'ready' ? 'rotate-ccw' : 'zap'" :size="16" />+{{ selectedReward }} XP
           </button>
+          <div v-else-if="selectedState === 'cooldown'" class="stopsheet__cooldown">
+            <SgBadge tone="success" variant="soft" icon="check">Navštíveno</SgBadge>
+            <span class="stopsheet__cooldownleft">Znovu za {{ cooldownLabel }}</span>
+          </div>
           <span v-else class="stopsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
         </div>
       </section>
     </div>
+
+    <!-- Gym sheet -->
+    <div v-if="selected && selected.isGym" ref="sheetEl" class="gymsheet">
+      <section class="gymsheet__panel" aria-labelledby="gym-name">
+        <div class="gymsheet__top">
+          <h2 id="gym-name" class="gymsheet__name">
+            <SgIcon name="award" :size="16" class="gymsheet__gymicon" />{{ selected.name }}
+          </h2>
+          <span class="gymsheet__dist"><SgIcon name="navigation" :size="12" />{{ distanceLabel }}</span>
+        </div>
+
+        <p v-if="!gymState" class="gymsheet__status">Načítám gym…</p>
+
+        <template v-else>
+          <!-- Held: show the defender -->
+          <div v-if="gymState.defender" class="gymsheet__defender">
+            <div class="gymsheet__who">
+              <SgAvatar
+                :src="gymState.holder?.avatarUrl ?? undefined"
+                :name="gymState.holder?.username ?? ''"
+                :size="34"
+              />
+              <div class="gymsheet__whotext">
+                <span class="gymsheet__holder">{{ gymState.isMine ? 'Bráníš ty' : gymState.holder?.username }}</span>
+                <span class="gymsheet__veh">{{ gymState.defender.shortName }}</span>
+              </div>
+              <span class="gymsheet__atk"><SgIcon name="zap" :size="12" />{{ gymState.defender.attack }}</span>
+            </div>
+            <SgProgressBar
+              :value="gymState.defender.hp"
+              :max="gymState.defender.maxHp"
+              :color="`var(--rarity-${gymState.defender.rarity})`"
+              :height="10"
+              show-value
+              :value-text="`${gymState.defender.hp} / ${gymState.defender.maxHp} HP`"
+            />
+          </div>
+          <p v-else class="gymsheet__open"><SgIcon name="shield" :size="15" />Tento gym je volný — obsaď ho!</p>
+
+          <!-- Action -->
+          <div class="gymsheet__actions">
+            <span v-if="!inRange" class="gymsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
+            <button
+              v-else-if="gymState.isMine"
+              class="gymsheet__btn gymsheet__btn--ghost"
+              :disabled="gymBusy"
+              @click="recallGym"
+            >
+              <SgIcon name="rotate-ccw" :size="16" />Stáhnout vozidlo
+            </button>
+            <button
+              v-else-if="gymState.defender"
+              class="gymsheet__btn"
+              :disabled="gymBusy || !idleVehicles.length"
+              @click="picker = 'battle'"
+            >
+              <SgIcon name="zap" :size="16" />{{ idleVehicles.length ? 'Bojovat' : 'Nemáš volné vozidlo' }}
+            </button>
+            <button
+              v-else
+              class="gymsheet__btn"
+              :disabled="gymBusy || !idleVehicles.length"
+              @click="picker = 'deploy'"
+            >
+              <SgIcon name="shield" :size="16" />{{ idleVehicles.length ? 'Nasadit vozidlo' : 'Nemáš volné vozidlo' }}
+            </button>
+          </div>
+        </template>
+      </section>
+    </div>
+
+    <!-- Vehicle picker (deploy a defender / pick an attacker) -->
+    <div v-if="picker" class="vpick" @click.self="picker = null">
+      <div class="vpick__panel">
+        <div class="vpick__handle" aria-hidden="true" />
+        <h3 class="vpick__title">{{ picker === 'deploy' ? 'Vyber obránce' : 'Vyber útočníka' }}</h3>
+        <ul class="vpick__list">
+          <li v-for="item in idleVehicles" :key="item.v.id">
+            <button class="vpick__item" :disabled="gymBusy" @click="chooseVehicle(item)">
+              <span class="vpick__code" :style="{ color: `var(--rarity-${item.v.rarity})` }">{{ item.v.shortName }}</span>
+              <span class="vpick__cat">{{ game.cats[item.v.category].label }}</span>
+              <span class="vpick__stats">
+                <SgIcon name="zap" :size="12" />{{ item.stats.attack }} · {{ item.stats.maxHp }} HP
+              </span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Full-screen tap battle. position:fixed (in the component) lifts it over the
+         bottom nav without a Teleport — a cross-boundary teleport here broke Vue's
+         unmount patch on route change ("parentNode of null"). -->
+    <BattleOverlay
+      v-if="battle && gymState?.defender"
+      :stop-id="battle.stopId"
+      :vehicle-id="battle.vehicleId"
+      :gym-name="selected?.name ?? ''"
+      :attacker-name="battle.attackerName"
+      :defender-name="gymState.defender.shortName"
+      :defender-rarity="gymState.defender.rarity"
+      :holder-name="gymState.holder?.username ?? 'Obránce'"
+      @finished="onBattleFinished"
+      @close="onBattleClose"
+    />
   </div>
 </template>
 
@@ -521,7 +940,7 @@ async function visitSelected() {
 .locate {
   position: absolute;
   right: 14px;
-  bottom: 118px;
+  bottom: 24px; // bottom-right corner when no stop sheet is open
   width: 46px;
   height: 46px;
   border-radius: 50%;
@@ -532,8 +951,59 @@ async function visitSelected() {
   @include flex-center;
   cursor: pointer;
   z-index: 5;
+  transition: bottom 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 
   &:active { transform: scale(0.94); }
+}
+
+/* Admin dev tools — stacked directly above the locate button (bottom-right) */
+.dev {
+  position: absolute;
+  right: 14px;
+  bottom: 80px; // clears the 46px locate FAB at bottom:24px + a gap
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  transition: bottom 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dev__fab {
+  width: 46px; height: 46px; border-radius: 50%;
+  border: none; cursor: pointer;
+  background: var(--surface-night); color: var(--text-on-night);
+  box-shadow: var(--shadow-lg);
+  @include flex-center;
+  &:active { transform: scale(0.94); }
+}
+.dev__fab--on { background: var(--brand); color: var(--text-on-brand); }
+.dev__panel {
+  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 10px;
+  width: 200px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.dev__title {
+  display: flex; align-items: center; gap: 5px;
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 10px;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted);
+  margin: 2px 2px 4px;
+}
+.dev__row {
+  display: flex; align-items: center; gap: 8px;
+  border: none; cursor: pointer; text-align: left;
+  padding: 9px 11px; border-radius: var(--radius-md);
+  background: var(--surface-sunken); color: var(--text-secondary);
+  font-family: var(--font-body); font-size: 13px; font-weight: var(--fw-medium);
+  &:active { transform: scale(0.98); }
+  &:disabled { opacity: 0.45; cursor: default; }
+  &.is-on { background: var(--brand); color: var(--text-on-brand); }
+}
+.dev__coords {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  text-align: center; margin: 2px 0 0;
 }
 
 .stopsheet { position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5; }
@@ -605,5 +1075,101 @@ async function visitSelected() {
   padding: 6px 11px;
   border-radius: 999px;
   flex: none;
+}
+.stopsheet__cooldown { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; flex: none; }
+.stopsheet__cooldownleft { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+/* Gym sheet */
+.gymsheet { position: absolute; left: 12px; right: 12px; bottom: 14px; z-index: 5; }
+.gymsheet__panel {
+  background: var(--surface-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gymsheet__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gymsheet__name {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 19px;
+  color: var(--text-primary);
+}
+.gymsheet__gymicon { color: var(--xp); flex: none; }
+.gymsheet__dist { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); flex: none; }
+.gymsheet__status { font-size: 13px; color: var(--text-muted); padding: 4px 0; }
+
+.gymsheet__defender { display: flex; flex-direction: column; gap: 9px; }
+.gymsheet__who { display: flex; align-items: center; gap: 10px; }
+.gymsheet__whotext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gymsheet__holder {
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 14px;
+  color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gymsheet__veh { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.gymsheet__atk {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 13px; color: var(--text-secondary);
+}
+.gymsheet__open {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px; color: var(--text-secondary);
+}
+
+.gymsheet__actions { display: flex; }
+.gymsheet__btn {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: none; cursor: pointer;
+  font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 15px;
+  color: var(--text-on-brand); background: var(--brand);
+  padding: 12px; border-radius: var(--radius-lg);
+  transition: transform 0.12s ease, opacity 0.12s ease;
+  &:active { transform: scale(0.98); }
+  &:disabled { opacity: 0.5; cursor: default; }
+}
+.gymsheet__btn--ghost { color: var(--text-secondary); background: var(--surface-sunken); }
+.gymsheet__far {
+  flex: 1;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 13px;
+  color: var(--text-muted); background: var(--surface-sunken);
+  padding: 12px; border-radius: var(--radius-lg);
+}
+
+/* Vehicle picker */
+.vpick {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  background: rgba(11, 15, 20, 0.45);
+}
+.vpick__panel {
+  background: var(--surface-card);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: 10px 16px max(20px, env(safe-area-inset-bottom));
+  max-height: 70%;
+  display: flex; flex-direction: column;
+  box-shadow: var(--shadow-xl);
+}
+.vpick__handle { width: 40px; height: 5px; border-radius: 999px; background: var(--border-strong); margin: 0 auto 14px; }
+.vpick__title {
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 16px;
+  color: var(--text-primary); margin: 0 0 12px;
+}
+.vpick__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.vpick__item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: none; cursor: pointer; text-align: left;
+  padding: 11px 14px; border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  &:active { transform: scale(0.99); }
+  &:disabled { opacity: 0.5; }
+}
+.vpick__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 16px; flex: none; }
+.vpick__cat { flex: 1; min-width: 0; font-size: 13px; color: var(--text-secondary); }
+.vpick__stats {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
 }
 </style>
