@@ -67,45 +67,45 @@ onBeforeUnmount(() => clearInterval(ticker))
         </div>
       </div>
 
-      <span class="eyebrow screen__eyebrow">Dnešní úkoly</span>
-      <div v-if="!game.quests.length" class="hint">Načítám výzvy…</div>
-      <div v-else class="quests">
-        <SgChallengeCard
-          v-for="q in game.quests"
-          :key="q.id"
-          :title="q.title"
-          :icon="q.icon"
-          :color="q.cat ? game.cats[q.cat].color : 'var(--brand)'"
-          :value="q.value"
-          :max="q.max"
-          :reward="q.reward"
-          :done="q.done"
-          :claimed="q.claimed"
-          claimable
-          :claiming="claimingId === q.id"
-          @claim="onClaim(q.id)"
-        />
-      </div>
+      <h2 class="eyebrow screen__eyebrow">Dnešní úkoly</h2>
+      <p v-if="!game.quests.length" class="hint">Načítám výzvy…</p>
+      <ul v-else class="quests">
+        <li v-for="q in game.quests" :key="q.id">
+          <SgChallengeCard
+            :title="q.title"
+            :icon="q.icon"
+            :color="q.cat ? game.cats[q.cat].color : 'var(--brand)'"
+            :value="q.value"
+            :max="q.max"
+            :reward="q.reward"
+            :done="q.done"
+            :claimed="q.claimed"
+            claimable
+            :claiming="claimingId === q.id"
+            @claim="onClaim(q.id)"
+          />
+        </li>
+      </ul>
 
       <div class="screen__sectionhead">
-        <span class="eyebrow">Achievementy</span>
+        <h2 class="eyebrow">Achievementy</h2>
         <span class="screen__count">{{ game.unlockedAchievements }}/{{ game.achievements.length }}</span>
       </div>
-      <div class="achievements">
-        <SgAchievementBadge
-          v-for="(a, i) in game.achievements"
-          :key="i"
-          :title="a.title"
-          :description="a.desc"
-          :icon="a.icon"
-          :tier="a.tier"
-          :color="a.color"
-          :unlocked="a.unlocked"
-          :value="a.value"
-          :max="a.max"
-          :size="64"
-        />
-      </div>
+      <ul class="achievements">
+        <li v-for="(a, i) in game.achievements" :key="i">
+          <SgAchievementBadge
+            :title="a.title"
+            :description="a.desc"
+            :icon="a.icon"
+            :tier="a.tier"
+            :color="a.color"
+            :unlocked="a.unlocked"
+            :value="a.value"
+            :max="a.max"
+            :size="64"
+          />
+        </li>
+      </ul>
     </div>
   </div>
 </template>
@@ -145,7 +145,7 @@ onBeforeUnmount(() => clearInterval(ticker))
 .banner__amount { font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 20px; color: var(--gold-300); }
 .banner__caption { font-family: var(--font-mono); font-size: 10px; color: var(--text-on-night-muted); }
 
-.quests { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+.quests { display: flex; flex-direction: column; gap: 10px; margin: 0 0 24px; padding: 0; list-style: none; }
 .hint { padding: 22px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
 
 .achievements {
@@ -154,5 +154,7 @@ onBeforeUnmount(() => clearInterval(ticker))
   gap: 18px 8px;
   @include soft-card;
   padding: 20px 12px;
+  margin: 0;
+  list-style: none;
 }
 </style>

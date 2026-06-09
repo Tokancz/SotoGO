@@ -19,7 +19,7 @@ defineEmits<{ select: [id: string] }>()
 </script>
 
 <template>
-  <nav class="sg-bnav">
+  <nav class="sg-bnav" aria-label="Hlavní navigace">
     <template v-for="it in items" :key="it.id">
       <div v-if="it.fab" class="sg-bnav__fab-slot">
         <button type="button" class="sg-bnav__fab" :aria-label="it.label" @click="$emit('select', it.id)">

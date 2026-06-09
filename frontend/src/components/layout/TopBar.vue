@@ -16,8 +16,8 @@ const xpLabel = computed(() => `${player.value.xpTotal.toLocaleString('cs-CZ')} 
   <header class="topbar">
     <SgAvatar :src="player.avatarUrl ?? undefined" :name="player.name" :size="38" :level="player.level" />
     <div class="topbar__titles">
-      <div class="topbar__title">{{ title }}</div>
-      <div v-if="subtitle" class="topbar__subtitle">{{ subtitle }}</div>
+      <h1 class="topbar__title">{{ title }}</h1>
+      <p v-if="subtitle" class="topbar__subtitle">{{ subtitle }}</p>
     </div>
     <div class="topbar__meta">
       <span class="topbar__streak"><SgIcon name="flame" :size="15" />{{ player.streak }}</span>

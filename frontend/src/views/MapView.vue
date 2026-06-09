@@ -358,17 +358,19 @@ async function visitSelected() {
           autocomplete="off"
         />
         <ul v-if="results.length" class="hud__results">
-          <li v-for="r in results" :key="r.id" class="hud__result" @click="selectResult(r)">
-            <SgIcon name="map-pin" :size="15" />
-            <span class="hud__resultname">{{ r.name }}</span>
-            <span class="hud__resultlines">{{ r.lines.slice(0, 4).join(' · ') }}</span>
+          <li v-for="r in results" :key="r.id">
+            <button type="button" class="hud__result" @click="selectResult(r)">
+              <SgIcon name="map-pin" :size="15" />
+              <span class="hud__resultname">{{ r.name }}</span>
+              <span class="hud__resultlines">{{ r.lines.slice(0, 4).join(' · ') }}</span>
+            </button>
           </li>
         </ul>
       </div>
     </div>
 
     <!-- Location / no-stops notice -->
-    <div v-if="noticeText" class="geo-notice">
+    <div v-if="noticeText" class="geo-notice" role="status">
       <SgIcon name="navigation" :size="14" /> {{ noticeText }}
     </div>
 
@@ -379,12 +381,12 @@ async function visitSelected() {
 
     <!-- Bottom stop sheet -->
     <div v-if="selected" class="stopsheet">
-      <div class="stopsheet__panel">
+      <section class="stopsheet__panel" aria-labelledby="stop-name">
         <div class="stopsheet__info">
-          <div class="stopsheet__name">
+          <h2 id="stop-name" class="stopsheet__name">
             {{ selected.name }}
             <SgIcon v-if="selected.isGym" name="award" :size="16" class="stopsheet__gym" />
-          </div>
+          </h2>
           <div class="stopsheet__meta">
             <div class="stopsheet__lines">
               <span
@@ -404,7 +406,7 @@ async function visitSelected() {
           </button>
           <span v-else class="stopsheet__far"><SgIcon name="navigation" :size="13" />Přijď blíž</span>
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
@@ -483,8 +485,13 @@ async function visitSelected() {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   padding: 9px 10px;
+  border: none;
   border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   color: var(--text-secondary);
   &:hover { background: var(--surface-sunken); }

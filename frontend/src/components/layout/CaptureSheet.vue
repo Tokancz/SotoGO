@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
 import { useCamera, type CropRect } from '@/composables/useCamera'
+import { useDialog } from '@/composables/useDialog'
 import { recognizeFleetNumber } from '@/lib/ocr'
 import { guessCategory, resolveFleetNumber } from '@/data/fleet'
 import type { CatalogVehicle, CategoryKey } from '@/types/game'
@@ -12,6 +13,9 @@ const emit = defineEmits<{ close: []; caught: [] }>()
 
 const game = useGameStore()
 const camera = useCamera()
+
+const rootEl = ref<HTMLElement | null>(null)
+useDialog(rootEl, { onClose: () => emit('close') })
 
 type Phase = 'aim' | 'scan' | 'confirm' | 'reward'
 const phase = ref<Phase>('aim')
@@ -156,9 +160,9 @@ async function addToPark() {
 </script>
 
 <template>
-  <div class="capture" :class="{ 'capture--reward': phase === 'reward' }" role="dialog" aria-modal="true">
+  <div ref="rootEl" class="capture" :class="{ 'capture--reward': phase === 'reward' }" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
     <div class="capture__bar">
-      <span class="capture__heading">{{ phase === 'reward' ? 'Nový objev!' : 'Vyfoť vozidlo' }}</span>
+      <h2 id="capture-heading" class="capture__heading">{{ phase === 'reward' ? 'Nový objev!' : 'Vyfoť vozidlo' }}</h2>
       <button class="capture__close" aria-label="Zavřít" @click="emit('close')"><SgIcon name="x" :size="18" /></button>
     </div>
 

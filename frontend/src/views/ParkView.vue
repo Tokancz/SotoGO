@@ -10,6 +10,7 @@ import SgBadge from '@/components/ui/SgBadge.vue'
 import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgVehicleCard from '@/components/game/SgVehicleCard.vue'
 import SgIcon from '@/components/SgIcon.vue'
+import { useDialog } from '@/composables/useDialog'
 
 const game = useGameStore()
 
@@ -17,6 +18,9 @@ type Filter = 'all' | CategoryKey
 const filter = ref<Filter>('all')
 const view = ref<'mrizka' | 'seznam'>('mrizka')
 const detail = ref<CatalogVehicle | null>(null)
+
+const panelEl = ref<HTMLElement | null>(null)
+useDialog(panelEl, { onClose: () => (detail.value = null), active: () => detail.value != null })
 
 const counts = computed(() => game.countByCategory)
 
@@ -100,7 +104,7 @@ const previewStyle = computed(() =>
       </div>
 
       <div class="screen__sectionhead">
-        <span class="eyebrow">{{ filter === 'all' ? 'Všechny modely' : game.cats[filter].plural }}</span>
+        <h2 class="eyebrow">{{ filter === 'all' ? 'Všechny modely' : game.cats[filter].plural }}</h2>
         <SgSegmentedControl
           v-model="view"
           :options="[
@@ -110,7 +114,7 @@ const previewStyle = computed(() =>
         />
       </div>
 
-      <div v-if="!game.catalogLoaded" class="hint">Načítám katalog…</div>
+      <p v-if="!game.catalogLoaded" class="hint">Načítám katalog…</p>
       <div v-else class="grid" :class="{ 'grid--list': view === 'seznam' }">
         <SgVehicleCard
           v-for="item in list"
@@ -132,16 +136,16 @@ const previewStyle = computed(() =>
 
     <Teleport to=".app-shell">
       <div v-if="detail && detailCat" class="sheet" @click.self="detail = null">
-        <div class="sheet__panel">
-          <div class="sheet__handle" />
+        <div ref="panelEl" class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="vehicle-detail-title">
+          <div class="sheet__handle" aria-hidden="true" />
           <div class="sheet__preview" :class="{ 'sheet__preview--photo': detailPhoto }" :style="detailPhoto ? undefined : previewStyle">
             <img v-if="detailPhoto" :src="detailPhoto" :alt="detail.shortName" />
             <SgIcon v-else :name="detailCat.icon" :size="84" />
           </div>
           <div class="sheet__head">
             <div>
-              <div class="sheet__code">{{ detail.shortName }}</div>
-              <div class="sheet__sub">{{ detail.model }}</div>
+              <h2 id="vehicle-detail-title" class="sheet__code">{{ detail.shortName }}</h2>
+              <p class="sheet__sub">{{ detail.model }}</p>
             </div>
             <SgBadge :color="detailCat.color" variant="solid" :icon="detailCat.icon">{{ detailCat.label }}</SgBadge>
           </div>
