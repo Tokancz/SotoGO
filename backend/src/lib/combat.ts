@@ -11,12 +11,14 @@ interface Band {
   attack: [number, number]
 }
 
-/** HP + Attack ranges per rarity (inclusive). Rarer ⇒ tankier and harder-hitting. */
+/** HP + Attack ranges per rarity (inclusive). Rarer ⇒ tankier and harder-hitting.
+ *  Tuned so a defender takes several tap-rounds to drain (HP ≫ attacker damage in
+ *  one round). MUST stay in sync with the backfill bands in db/schema.sql. */
 export const RARITY_BANDS: Record<Rarity, Band> = {
-  common: { hp: [60, 90], attack: [12, 20] },
-  rare: { hp: [90, 130], attack: [18, 28] },
-  epic: { hp: [120, 170], attack: [26, 38] },
-  legendary: { hp: [160, 220], attack: [34, 50] },
+  common: { hp: [120, 180], attack: [9, 13] },
+  rare: { hp: [180, 260], attack: [13, 19] },
+  epic: { hp: [240, 340], attack: [18, 26] },
+  legendary: { hp: [320, 440], attack: [24, 34] },
 }
 
 const randInt = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1))
@@ -56,8 +58,9 @@ export function rollRarity(base: string): Rarity {
 export const BATTLE_DURATION_MS = 25_000
 /** Grace added to the duration when validating elapsed time server-side. */
 export const BATTLE_GRACE_MS = 3_000
-/** Max taps/sec we'll credit — caps how much damage an attacker can claim. */
-export const MAX_TAPS_PER_SEC = 8
+/** Max taps/sec we'll credit — caps how much damage an attacker can claim, and
+ *  (with the tankier HP bands) makes draining a strong defender take real effort. */
+export const MAX_TAPS_PER_SEC = 6
 /** XP for taking over a gym. */
 export const BATTLE_WIN_XP = 80
 /** Defender HP healed per hour while defending (regenerates after being attacked). */

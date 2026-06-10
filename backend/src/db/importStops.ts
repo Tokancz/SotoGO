@@ -6,7 +6,7 @@
 //   stops.txt       → platforms; grouped into station nodes by id prefix (U306…)
 //
 // Per station we aggregate the serving lines/categories, average the platform
-// coordinates, and flag gyms (metro stations + big interchanges).
+// coordinates, and flag gyms (ONLY big metro hubs — see GYM_MIN_HUB_LINES).
 //
 // Run with: npm run import:stops
 import { existsSync, readFileSync } from 'node:fs'
@@ -30,7 +30,10 @@ const TYPE_TO_CATEGORY: Record<string, string> = {
   '11': 'trolley',
 }
 
-const GYM_MIN_LINES = 6 // stations served by this many lines also count as gyms
+// Gyms are now ONLY big metro hubs: a metro station that's also a major surface
+// interchange (served by at least this many total lines — metro + tram/bus/…).
+// Tune to taste; the script prints the resulting gym count.
+const GYM_MIN_HUB_LINES = 9
 
 interface Row {
   [key: string]: string
@@ -118,7 +121,7 @@ async function main() {
     }
     const lines = [...lineSet]
     const categories = [...catSet]
-    const isGym = categories.includes('metro') || lines.length >= GYM_MIN_LINES
+    const isGym = categories.includes('metro') && lines.length >= GYM_MIN_HUB_LINES
     return {
       id,
       name: st.name,
@@ -151,6 +154,14 @@ async function main() {
         values,
       )
     }
+    // Free any vehicle defending a stop that is no longer a gym, then drop those
+    // gym sessions — otherwise a recall/battle would target a stop with is_gym=false.
+    await client.query(
+      `update user_vehicles uv set deployed_stop_id = null, hp = max_hp, hp_updated_at = now()
+         from stops s
+        where uv.deployed_stop_id = s.id and s.is_gym = false`,
+    )
+    await client.query('delete from gym_state g using stops s where g.stop_id = s.id and s.is_gym = false')
     await client.query('commit')
   } catch (err) {
     await client.query('rollback')

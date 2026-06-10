@@ -117,15 +117,15 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
         <span>Zatím žádné úlovky — vyfoť své první vozidlo!</span>
       </p>
       <ul v-else class="recent">
-        <li v-for="v in game.recentVehicles" :key="v.id" class="recent__row">
-          <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[v.category].color} 14%, white)`, color: game.cats[v.category].color }">
-            <SgIcon :name="game.cats[v.category].icon" :size="20" />
+        <li v-for="{ instance, model } in game.recentVehicles" :key="instance.id" class="recent__row">
+          <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[model.category].color} 14%, white)`, color: game.cats[model.category].color }">
+            <SgIcon :name="game.cats[model.category].icon" :size="20" />
           </div>
           <div class="recent__body">
-            <div class="recent__code">{{ v.shortName }}</div>
-            <div class="recent__sub">{{ game.cats[v.category].label }} · {{ v.operator }}</div>
+            <div class="recent__code">{{ model.shortName }}<span v-if="instance.fleetNumber" class="recent__serial"> #{{ instance.fleetNumber }}</span></div>
+            <div class="recent__sub">{{ game.cats[model.category].label }} · {{ model.operator }}</div>
           </div>
-          <span class="recent__date">{{ v.manufacturer }}</span>
+          <span class="recent__date">{{ model.manufacturer }}</span>
         </li>
       </ul>
 

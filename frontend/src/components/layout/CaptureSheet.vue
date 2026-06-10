@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
-import { useCamera } from '@/composables/useCamera'
+import { useCamera, type CropRect } from '@/composables/useCamera'
 import { useDialog } from '@/composables/useDialog'
 import { downscaleCanvas, downscaleImageFile } from '@/lib/image'
 import { resolveFleetNumber } from '@/data/fleet'
 import { recognizeApi, type RecognizeResult } from '@/services/recognize'
-import type { CatalogVehicle, CaughtReveal, CategoryKey, Rarity } from '@/types/game'
+import type { CatalogVehicle, CatchRoll, CategoryKey, Rarity } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
 
@@ -18,21 +18,30 @@ const camera = useCamera()
 const rootEl = ref<HTMLElement | null>(null)
 useDialog(rootEl, { onClose: () => emit('close') })
 
-type Phase = 'aim' | 'scan' | 'confirm' | 'reject' | 'reward'
+// review = model resolved, confirm/correct the serial then catch.
+// result = a fresh catch (merged XP + rarity reveal). duplicate = same serial
+// caught again, pick which roll to keep.
+type Phase = 'aim' | 'scan' | 'confirm' | 'reject' | 'review' | 'result' | 'duplicate'
 const phase = ref<Phase>('aim')
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 const corners = ['nw', 'ne', 'sw', 'se'] as const
 
+// Digital zoom (1–4×): scales the live preview and crops the same centered region
+// on capture, which enlarges the painted number so it reads more reliably.
+const ZOOM_MAX = 4
+const zoom = ref(1)
+
 const stillUrl = ref('')
 // The downscaled catch photo to upload (capped + re-encoded; see @/lib/image).
 const photoBlob = ref<Blob | null>(null)
-const recognizedNumber = ref<string | null>(null)
+// Editable serial (evidenční číslo): prefilled from OCR, but the player can fix a
+// misread. It identifies the physical vehicle and drives duplicate detection.
+const serial = ref('')
 const scanError = ref(false)
 
-// The resolved catalog model shown on the reward screen.
+// The resolved catalog model.
 const matched = ref<CatalogVehicle | null>(null)
-const reward = 100 // CATCH_XP — flat, awarded server-side on a new catch.
 
 // Manual-confirm picker state (used when recognition can't auto-resolve the model).
 const pickerCat = ref<CategoryKey>('tram')
@@ -41,8 +50,12 @@ const candidateIds = ref<string[]>([])
 
 const saving = ref(false)
 const saveError = ref(false)
-// What the catch rolled (rarity + stats), revealed on the reward screen once saved.
-const revealed = ref<CaughtReveal | null>(null)
+// A fresh catch's rolled reward (XP + rarity + stats), shown on the result screen.
+const result = ref<{ awardedXp: number; rarity: Rarity; hp: number; maxHp: number; attack: number } | null>(null)
+// Same-serial re-catch: the existing instance vs the freshly rolled candidate.
+const dup = ref<{ existing: CatchRoll & { id: string }; candidate: CatchRoll } | null>(null)
+const keeping = ref(false)
+
 const rarityLabels: Record<Rarity, string> = {
   common: 'Běžná',
   rare: 'Vzácná',
@@ -51,9 +64,6 @@ const rarityLabels: Record<Rarity, string> = {
 }
 
 const cat = computed(() => (matched.value ? game.cats[matched.value.category] : null))
-const alreadyHave = computed(() =>
-  matched.value ? game.collectedSet.has(matched.value.id) : false,
-)
 const pickerList = computed(() => {
   const inCat = game.catalog.filter((v) => v.category === pickerCat.value)
   if (!candidateIds.value.length) return inCat
@@ -76,48 +86,46 @@ function findModel(category: CategoryKey, shortName: string): CatalogVehicle | u
   return game.catalog.find((v) => v.category === category && v.shortName === shortName)
 }
 
-// A single, clearly-best visual guess auto-resolves to the reward; anything
-// less confident drops into the picker (pre-filtered + candidates floated up),
-// so we never silently pick the wrong near-identical variant.
+// A single, clearly-best visual guess auto-resolves to review; anything less
+// confident drops into the picker (pre-filtered + candidates floated up).
 const AUTO_ACCEPT_CONFIDENCE = 0.85
 
 /**
  * Hybrid resolution: the painted fleet number wins when legible (authoritative
  * via the DPP ranges); otherwise fall back to the model's visual candidates.
  */
-function applyRecognition(result: RecognizeResult) {
+function applyRecognition(res: RecognizeResult) {
   // The model judged the photo not to be a public-transport vehicle — don't let
   // a random picture count as a catch.
-  if (!result.isPublicTransport) {
+  if (!res.isPublicTransport) {
     phase.value = 'reject'
     return
   }
 
-  const number = result.fleetNumber || null
-  recognizedNumber.value = number
+  serial.value = res.fleetNumber || ''
 
-  if (number) {
-    const hit = resolveFleetNumber(Number(number))
+  if (res.fleetNumber) {
+    const hit = resolveFleetNumber(Number(res.fleetNumber))
     const model = hit ? findModel(hit.category, hit.shortName) : undefined
     if (model) {
       matched.value = model
-      phase.value = 'reward'
+      phase.value = 'review'
       return
     }
   }
 
   // No authoritative number — use the visual guesses.
-  const candModels = result.candidates
-    .map((c) => findModel(result.category, c.shortName) ?? game.catalog.find((v) => v.shortName === c.shortName))
+  const candModels = res.candidates
+    .map((c) => findModel(res.category, c.shortName) ?? game.catalog.find((v) => v.shortName === c.shortName))
     .filter((v): v is CatalogVehicle => v != null)
 
-  pickerCat.value = candModels[0]?.category ?? result.category
+  pickerCat.value = candModels[0]?.category ?? res.category
   candidateIds.value = candModels.map((v) => v.id)
 
-  const top = result.candidates[0]
-  if (candModels[0] && top && top.confidence >= AUTO_ACCEPT_CONFIDENCE && result.candidates.length === 1) {
+  const top = res.candidates[0]
+  if (candModels[0] && top && top.confidence >= AUTO_ACCEPT_CONFIDENCE && res.candidates.length === 1) {
     matched.value = candModels[0]
-    phase.value = 'reward'
+    phase.value = 'review'
     return
   }
 
@@ -139,9 +147,17 @@ async function scan(photo: Blob) {
   }
 }
 
+/** Centered crop matching the current zoom, so the capture frames what's on screen. */
+function cropForZoom(): CropRect | undefined {
+  if (zoom.value <= 1) return undefined
+  const s = 1 / zoom.value
+  const off = (1 - s) / 2
+  return { x: off, y: off, w: s, h: s }
+}
+
 async function capture() {
   if (!videoEl.value || !camera.active.value) return
-  const full = camera.captureCanvas(videoEl.value)
+  const full = camera.captureCanvas(videoEl.value, cropForZoom())
   stillUrl.value = full.toDataURL('image/jpeg', 0.8)
   const photo = await downscaleCanvas(full)
   photoBlob.value = photo
@@ -161,40 +177,32 @@ async function onFile(e: Event) {
 
 function chooseModel(v: CatalogVehicle) {
   matched.value = v
-  phase.value = 'reward'
+  phase.value = 'review'
 }
 
-async function restart() {
-  recognizedNumber.value = null
-  matched.value = null
-  scanError.value = false
-  saveError.value = false
-  revealed.value = null
-  stillUrl.value = ''
-  photoBlob.value = null
-  candidateIds.value = []
-  phase.value = 'aim'
-  await nextTick()
-  if (videoEl.value) await camera.start(videoEl.value)
+function onSerialInput(e: Event) {
+  serial.value = (e.target as HTMLInputElement).value.replace(/\D/g, '')
 }
 
-async function addToPark() {
+/** Commit the catch with the (possibly corrected) serial. */
+async function doCatch() {
   if (!matched.value || saving.value) return
-  // Already revealed (or it's a dupe with nothing to roll) → this tap just finishes.
-  if (revealed.value || alreadyHave.value) {
-    emit('caught')
-    emit('close')
-    return
-  }
   saving.value = true
   saveError.value = false
   try {
-    const res = await game.collectVehicle(matched.value.id, photoBlob.value)
-    if (res) {
-      revealed.value = res // stay open to reveal the rolled rarity + stats
+    const res = await game.collectVehicle(matched.value.id, serial.value || null, photoBlob.value)
+    if (res.status === 'new') {
+      result.value = {
+        awardedXp: res.awardedXp,
+        rarity: res.rarity,
+        hp: res.stats.hp,
+        maxHp: res.stats.maxHp,
+        attack: res.stats.attack,
+      }
+      phase.value = 'result'
     } else {
-      emit('caught')
-      emit('close')
+      dup.value = { existing: res.existing, candidate: res.candidate }
+      phase.value = 'duplicate'
     }
   } catch (err) {
     // Keep the sheet open so the catch isn't lost — let the player retry.
@@ -204,12 +212,52 @@ async function addToPark() {
     saving.value = false
   }
 }
+
+/** Resolve a duplicate-serial catch: keep the new roll or the existing one. */
+async function keep(choice: 'new' | 'old') {
+  if (!matched.value || keeping.value || !dup.value) return
+  const fleet = dup.value.existing.fleetNumber ?? dup.value.candidate.fleetNumber
+  if (!fleet) return
+  keeping.value = true
+  saveError.value = false
+  try {
+    await game.keepCatch(matched.value.id, fleet, choice)
+    emit('caught')
+    emit('close')
+  } catch (err) {
+    console.error('Uložení volby selhalo:', err)
+    saveError.value = true
+  } finally {
+    keeping.value = false
+  }
+}
+
+function finish() {
+  emit('caught')
+  emit('close')
+}
+
+async function restart() {
+  serial.value = ''
+  matched.value = null
+  scanError.value = false
+  saveError.value = false
+  result.value = null
+  dup.value = null
+  stillUrl.value = ''
+  photoBlob.value = null
+  candidateIds.value = []
+  zoom.value = 1
+  phase.value = 'aim'
+  await nextTick()
+  if (videoEl.value) await camera.start(videoEl.value)
+}
 </script>
 
 <template>
-  <div ref="rootEl" class="capture" :class="{ 'capture--reward': phase === 'reward' }" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
+  <div ref="rootEl" class="capture" :class="{ 'capture--reward': phase === 'result' || phase === 'duplicate' }" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
     <div class="capture__bar">
-      <h2 id="capture-heading" class="capture__heading">{{ phase === 'reward' ? 'Nový objev!' : 'Vyfoť vozidlo' }}</h2>
+      <h2 id="capture-heading" class="capture__heading">{{ phase === 'result' ? 'Nový objev!' : phase === 'duplicate' ? 'Stejné číslo' : 'Vyfoť vozidlo' }}</h2>
       <button class="capture__close" aria-label="Zavřít" @click="emit('close')"><SgIcon name="x" :size="18" /></button>
     </div>
 
@@ -220,6 +268,7 @@ async function addToPark() {
           v-show="phase === 'aim' && camera.active.value"
           ref="videoEl"
           class="capture__video"
+          :style="{ transform: `scale(${zoom})` }"
           playsinline
           muted
           autoplay
@@ -243,6 +292,22 @@ async function addToPark() {
         </div>
         <div v-if="phase === 'scan'" class="capture__status">
           <SgIcon name="scan-line" :size="16" /> Čtu evidenční číslo…
+        </div>
+
+        <!-- Zoom slider — easier to capture the serial number from afar -->
+        <div v-if="phase === 'aim' && camera.active.value" class="capture__zoom">
+          <SgIcon name="zoom-out" :size="16" />
+          <input
+            class="capture__zoomslider"
+            type="range"
+            min="1"
+            :max="ZOOM_MAX"
+            step="0.1"
+            v-model.number="zoom"
+            aria-label="Přiblížení"
+          />
+          <SgIcon name="zoom-in" :size="16" />
+          <span class="capture__zoomval">{{ zoom.toFixed(1) }}×</span>
         </div>
       </div>
 
@@ -272,7 +337,7 @@ async function addToPark() {
         <SgIcon :name="scanError ? 'triangle-alert' : 'scan-search'" :size="22" />
         <div>
           <div class="capture__confirm-title">
-            {{ scanError ? 'Čtení se nezdařilo' : recognizedNumber ? `Přečteno: #${recognizedNumber}` : 'Číslo se nepodařilo přečíst' }}
+            {{ scanError ? 'Čtení se nezdařilo' : serial ? `Přečteno: #${serial}` : 'Číslo se nepodařilo přečíst' }}
           </div>
           <div class="capture__confirm-sub">Vyber model ručně.</div>
         </div>
@@ -330,42 +395,97 @@ async function addToPark() {
       </div>
     </div>
 
-    <!-- REWARD -->
-    <div v-else class="capture__reward">
+    <!-- REVIEW: model resolved — confirm/correct the serial, then catch -->
+    <div v-else-if="phase === 'review'" class="capture__review">
+      <div class="capture__reviewmedia">
+        <img v-if="stillUrl" :src="stillUrl" alt="" />
+        <div v-else class="capture__reviewicon" :style="{ background: cat?.color }"><SgIcon :name="cat?.icon ?? 'tram-front'" :size="40" /></div>
+      </div>
+      <div class="capture__reviewbody">
+        <div class="capture__code">{{ matched?.shortName }}</div>
+        <div class="capture__sub">{{ cat?.label }} · {{ matched?.operator }}</div>
+
+        <label class="capture__seriallabel" for="serial-input">Evidenční číslo</label>
+        <div class="capture__serialfield">
+          <span class="capture__serialhash">#</span>
+          <input
+            id="serial-input"
+            class="capture__serialinput"
+            inputmode="numeric"
+            placeholder="např. 9325"
+            :value="serial"
+            @input="onSerialInput"
+          />
+        </div>
+        <p class="capture__serialhint">Pokud číslo nesedí, oprav ho — jinak nech prázdné.</p>
+
+        <div v-if="saveError" class="capture__saveerror">
+          <SgIcon name="triangle-alert" :size="15" /> Uložení se nezdařilo. Zkus to znovu.
+        </div>
+      </div>
+
+      <div class="capture__actions capture__actions--stack">
+        <SgButton variant="reward" size="lg" full-width :leading-icon="saving ? undefined : 'sparkles'" :disabled="saving" @click="doCatch">
+          {{ saving ? 'Ukládám…' : 'Ulovit' }}
+        </SgButton>
+        <button class="capture__retake" :disabled="saving" @click="restart"><SgIcon name="rotate-ccw" :size="15" /> Přefotit</button>
+      </div>
+    </div>
+
+    <!-- DUPLICATE: same serial caught again — keep which roll? -->
+    <div v-else-if="phase === 'duplicate' && dup" class="capture__dup">
+      <p class="capture__dup-sub">Číslo <strong>#{{ dup.existing.fleetNumber ?? dup.candidate.fleetNumber }}</strong> už máš. Vyber, které vozidlo si necháš.</p>
+      <div class="capture__dup-grid">
+        <button class="capture__dupcard" :disabled="keeping" @click="keep('old')">
+          <div class="capture__dup-eyebrow">Stávající</div>
+          <div class="capture__dupthumb" :style="{ background: cat?.color }">
+            <img v-if="dup.existing.imageUrl" :src="dup.existing.imageUrl" alt="" />
+            <SgIcon v-else :name="cat?.icon ?? 'tram-front'" :size="30" />
+          </div>
+          <div class="capture__rarity" :style="{ color: `var(--rarity-${dup.existing.rarity})` }">{{ rarityLabels[dup.existing.rarity] }}</div>
+          <div class="capture__dupstats">
+            <span><SgIcon name="shield" :size="13" />{{ dup.existing.maxHp }}</span>
+            <span><SgIcon name="zap" :size="13" />{{ dup.existing.attack }}</span>
+          </div>
+        </button>
+        <button class="capture__dupcard capture__dupcard--new" :disabled="keeping" @click="keep('new')">
+          <div class="capture__dup-eyebrow">Nový</div>
+          <div class="capture__dupthumb" :style="{ background: cat?.color }">
+            <img v-if="dup.candidate.imageUrl" :src="dup.candidate.imageUrl" alt="" />
+            <SgIcon v-else :name="cat?.icon ?? 'tram-front'" :size="30" />
+          </div>
+          <div class="capture__rarity" :style="{ color: `var(--rarity-${dup.candidate.rarity})` }">{{ rarityLabels[dup.candidate.rarity] }}</div>
+          <div class="capture__dupstats">
+            <span><SgIcon name="shield" :size="13" />{{ dup.candidate.maxHp }}</span>
+            <span><SgIcon name="zap" :size="13" />{{ dup.candidate.attack }}</span>
+          </div>
+        </button>
+      </div>
+      <p v-if="saveError" class="capture__saveerror"><SgIcon name="triangle-alert" :size="15" /> Uložení se nezdařilo. Zkus to znovu.</p>
+      <p class="capture__dup-foot">Ťukni na to, které si chceš nechat.</p>
+    </div>
+
+    <!-- RESULT: merged XP reward + rarity reveal -->
+    <div v-else-if="phase === 'result' && result" class="capture__reward">
       <div class="capture__pop sg-reward-pop" :style="{ background: `color-mix(in srgb, ${cat?.color} 22%, transparent)`, boxShadow: `0 0 0 8px color-mix(in srgb, ${cat?.color} 12%, transparent)` }">
         <div class="capture__pop-inner" :style="{ background: cat?.color }"><SgIcon :name="cat?.icon ?? 'tram-front'" :size="44" /></div>
       </div>
-      <div class="eyebrow capture__tag">{{ alreadyHave ? 'Už máš v parku' : 'Nový objev!' }}</div>
+      <div class="eyebrow capture__tag">Nový objev!</div>
       <div class="capture__code">
-        {{ matched?.shortName }}<template v-if="recognizedNumber"> #{{ recognizedNumber }}</template>
+        {{ matched?.shortName }}<template v-if="serial"> #{{ serial }}</template>
       </div>
       <div class="capture__sub">{{ cat?.label }} · {{ matched?.operator }}</div>
-      <div v-if="!alreadyHave" class="capture__xp"><SgIcon name="zap" :size="20" /> +{{ reward }} XP</div>
 
-      <!-- Reveal what this catch rolled (rarity + combat stats). -->
-      <div v-if="revealed" class="capture__reveal">
-        <div class="capture__rarity" :style="{ color: `var(--rarity-${revealed.rarity})` }">
-          {{ rarityLabels[revealed.rarity] }}
-        </div>
-        <div class="capture__statpills">
-          <span class="capture__statpill"><SgIcon name="shield" :size="15" />{{ revealed.maxHp }} HP</span>
-          <span class="capture__statpill"><SgIcon name="zap" :size="15" />{{ revealed.attack }} ATK</span>
-        </div>
+      <div class="capture__rarity capture__rarity--badge" :style="{ color: `var(--rarity-${result.rarity})` }">
+        {{ rarityLabels[result.rarity] }}
       </div>
+      <div class="capture__statpills">
+        <span class="capture__statpill"><SgIcon name="shield" :size="15" />{{ result.maxHp }} HP</span>
+        <span class="capture__statpill"><SgIcon name="zap" :size="15" />{{ result.attack }} ATK</span>
+      </div>
+      <div class="capture__xp"><SgIcon name="zap" :size="20" /> +{{ result.awardedXp }} XP</div>
 
-      <div v-if="saveError" class="capture__saveerror">
-        <SgIcon name="triangle-alert" :size="15" /> Uložení se nezdařilo. Zkus to znovu.
-      </div>
-      <SgButton
-        variant="reward"
-        size="lg"
-        full-width
-        :leading-icon="saving ? undefined : 'plus'"
-        :disabled="saving"
-        @click="addToPark"
-      >
-        {{ saving ? 'Ukládám…' : saveError ? 'Zkusit znovu' : revealed ? 'Hotovo' : alreadyHave ? 'Otevřít park' : 'Přidat do parku' }}
-      </SgButton>
+      <SgButton variant="reward" size="lg" full-width leading-icon="check" @click="finish">Hotovo</SgButton>
     </div>
   </div>
 </template>
@@ -404,7 +524,7 @@ async function addToPark() {
 }
 
 .capture__view { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #0b0f14; }
-.capture__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.capture__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform-origin: center; }
 .capture__fallback {
   position: relative;
   z-index: 1;
@@ -494,7 +614,30 @@ async function addToPark() {
   align-items: center;
   gap: 8px;
 }
+
+/* Zoom slider */
+.capture__zoom {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+.capture__zoomslider {
+  width: 150px;
+  accent-color: var(--brand);
+}
+.capture__zoomval { font-family: var(--font-mono); font-size: 12px; min-width: 30px; }
+
 .capture__actions { padding: 18px 20px 26px; padding-bottom: max(26px, env(safe-area-inset-bottom)); }
+.capture__actions--stack { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 
 .capture__filebtn {
   display: flex;
@@ -562,6 +705,92 @@ async function addToPark() {
 .capture__model-code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 15px; }
 .capture__model-name { font-size: 12px; color: var(--text-on-night-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Review: confirm the serial before catching */
+.capture__review { flex: 1; display: flex; flex-direction: column; color: #fff; padding: 0 20px; min-height: 0; }
+.capture__reviewmedia {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  max-height: 200px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin: 4px 0 18px;
+  background: #0b0f14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  img { width: 100%; height: 100%; object-fit: cover; }
+}
+.capture__reviewicon { width: 78px; height: 78px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; }
+.capture__reviewbody { flex: 1; }
+.capture__seriallabel { display: block; margin: 20px 0 8px; font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 13px; color: var(--text-on-night-muted); }
+.capture__serialfield {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 54px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.18);
+  &:focus-within { box-shadow: inset 0 0 0 2px var(--brand); }
+}
+.capture__serialhash { font-family: var(--font-mono); font-size: 22px; font-weight: var(--fw-bold); color: var(--text-on-night-muted); }
+.capture__serialinput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-bold);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  &::placeholder { color: rgba(255, 255, 255, 0.35); font-weight: var(--fw-regular); letter-spacing: 0; }
+}
+.capture__serialhint { margin-top: 8px; font-size: 12px; color: var(--text-on-night-muted); }
+.capture__retake {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-on-night-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* Duplicate-serial choice */
+.capture__dup { flex: 1; display: flex; flex-direction: column; justify-content: center; color: #fff; padding: 0 20px 24px; text-align: center; }
+.capture__dup-sub { font-size: 15px; line-height: 1.45; color: var(--text-on-night-muted); margin-bottom: 22px; }
+.capture__dup-sub strong { color: #fff; font-family: var(--font-mono); }
+.capture__dup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.capture__dupcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  &:active { transform: scale(0.98); }
+  &:disabled { opacity: 0.5; }
+}
+.capture__dupcard--new { border-color: var(--gold-300); }
+.capture__dup-eyebrow { font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-on-night-muted); }
+.capture__dupthumb { width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #fff; img { width: 100%; height: 100%; object-fit: cover; } }
+.capture__dupstats {
+  display: flex; gap: 12px;
+  font-family: var(--font-mono); font-size: 13px; color: var(--text-on-night-muted);
+  span { display: inline-flex; align-items: center; gap: 4px; }
+}
+.capture__dup-foot { margin-top: 22px; font-size: 13px; color: var(--text-on-night-muted); }
+
+/* Result (merged reward) */
 .capture__reward {
   flex: 1;
   display: flex;
@@ -572,17 +801,17 @@ async function addToPark() {
   text-align: center;
 }
 .capture__pop {
-  width: 118px;
-  height: 118px;
+  width: 110px;
+  height: 110px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 .capture__pop-inner {
-  width: 84px;
-  height: 84px;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -591,38 +820,21 @@ async function addToPark() {
 }
 .capture__tag { color: var(--gold-300); margin-bottom: 8px; }
 .capture__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 30px; color: #fff; letter-spacing: -0.01em; }
-.capture__sub { color: var(--text-on-night-muted); margin-top: 4px; margin-bottom: 18px; }
-.capture__xp {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-display);
-  font-weight: var(--fw-bold);
-  font-size: 20px;
-  color: #4a2d00;
-  background: var(--xp);
-  padding: 8px 18px;
-  border-radius: var(--radius-pill);
-  margin-bottom: 30px;
-}
-.capture__reveal {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
-}
+.capture__sub { color: var(--text-on-night-muted); margin-top: 4px; }
 .capture__rarity {
   font-family: var(--font-display);
   font-weight: var(--fw-bold);
   font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+.capture__rarity--badge {
+  margin: 18px 0 12px;
   padding: 5px 16px;
   border-radius: var(--radius-pill);
   border: 1.5px solid currentColor;
 }
-.capture__statpills { display: flex; gap: 10px; }
+.capture__statpills { display: flex; gap: 10px; margin-bottom: 20px; }
 .capture__statpill {
   display: inline-flex;
   align-items: center;
@@ -635,6 +847,19 @@ async function addToPark() {
   padding: 8px 14px;
   border-radius: var(--radius-pill);
 }
+.capture__xp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: 20px;
+  color: #4a2d00;
+  background: var(--xp);
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
+  margin-bottom: 28px;
+}
 
 .capture__saveerror {
   display: inline-flex;
@@ -642,7 +867,7 @@ async function addToPark() {
   gap: 6px;
   font-size: 13px;
   color: #ff8a80;
-  margin-bottom: 14px;
+  margin-top: 14px;
 }
 
 .capture__reject {

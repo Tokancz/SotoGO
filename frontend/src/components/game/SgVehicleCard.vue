@@ -24,6 +24,8 @@ const props = withDefaults(
     isNew?: boolean
     locked?: boolean
     compact?: boolean
+    /** How many instances of this model the player owns (shows a ×N badge when > 1). */
+    count?: number
   }>(),
   { categoryColor: 'var(--cat-tram)', categoryIcon: 'tram-front' },
 )
@@ -56,6 +58,7 @@ const vars = computed(() => ({
       <div v-else class="sg-vcard__media-fallback"><SgIcon :name="categoryIcon" /></div>
       <span class="sg-vcard__catchip"><SgIcon :name="categoryIcon" />{{ category }}</span>
       <span v-if="rarity" class="sg-vcard__rarity"><SgIcon name="star" /></span>
+      <span v-if="count && count > 1" class="sg-vcard__count">×{{ count }}</span>
       <span v-if="isNew" class="sg-vcard__new">Nový objev!</span>
     </div>
     <div class="sg-vcard__body">
@@ -64,6 +67,7 @@ const vars = computed(() => ({
       <span v-if="found" class="sg-vcard__meta"><SgIcon name="calendar-check" />{{ found }}</span>
     </div>
     <div v-if="compact" class="sg-vcard__trail">
+      <span v-if="count && count > 1" class="sg-vcard__count sg-vcard__count--inline">×{{ count }}</span>
       <span v-if="isNew" class="sg-vcard__newdot" title="Nový objev!" />
       <span class="sg-vcard__catchip sg-vcard__catchip--inline"><SgIcon :name="categoryIcon" />{{ category }}</span>
       <span v-if="rarity" class="sg-vcard__rarity sg-vcard__rarity--inline"><SgIcon name="star" /></span>
@@ -133,6 +137,23 @@ const vars = computed(() => ({
   box-shadow: var(--shadow-sm);
   svg { width: 13px; height: 13px; color: #fff; }
 }
+.sg-vcard__count {
+  position: absolute;
+  top: 10px;
+  right: 38px;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-night, #16202b);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-bold);
+  font-size: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.sg-vcard__count--inline { position: static; height: 20px; }
 .sg-vcard__new {
   position: absolute;
   bottom: 10px;

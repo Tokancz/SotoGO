@@ -4,7 +4,7 @@
 // (GET /api/vehicles, GET /api/stops). Progress — which catalog models the
 // player has collected and which stops they've visited — starts empty and is
 // tracked in memory for now (no collection backend yet); when that lands,
-// hydrate collectedIds / visitedIds from the server.
+// hydrate collected instances / visitedIds from the server.
 //
 // Challenge / achievement DEFINITIONS are still seed reference (progress zeroed)
 // until their backend exists. Category UI metadata (CATS) is design data.
@@ -17,11 +17,11 @@ import type {
   BattleStart,
   CatalogVehicle,
   CategoryKey,
-  CaughtReveal,
+  CatchOutcome,
+  CollectedVehicle,
   GymState,
   Player,
   Quest,
-  VehicleStats,
 } from '@/types/game'
 import { useAuthStore } from '@/stores/auth'
 import { levelFromTotalXp } from '@/lib/leveling'
@@ -34,12 +34,9 @@ import { CATS } from '@/data/seed'
 interface State {
   cats: typeof CATS
   catalog: CatalogVehicle[]
-  /** Catalog ids the player has collected, newest first. */
-  collectedIds: string[]
-  /** The player's catch photo per collected vehicle id (absolute URL). */
-  collectedPhotos: Record<string, string>
-  /** Combat stats per collected vehicle id (HP/Attack, gym deployment). */
-  vehicleStats: Record<string, VehicleStats>
+  /** Every caught vehicle INSTANCE (a physical vehicle, by serial), newest first.
+   *  A player can own several of the same model with different serials. */
+  collected: CollectedVehicle[]
   stops: ApiStop[]
   /** Stop ids the player has visited (unique). */
   visitedIds: string[]
@@ -56,9 +53,7 @@ export const useGameStore = defineStore('game', {
   state: (): State => ({
     cats: CATS,
     catalog: [],
-    collectedIds: [],
-    collectedPhotos: {},
-    vehicleStats: {},
+    collected: [],
     stops: [],
     visitedIds: [],
     visitedAt: {},
@@ -81,7 +76,7 @@ export const useGameStore = defineStore('game', {
         xp: xpIntoLevel,
         xpMax: xpForNext,
         xpTotal,
-        vehicles: state.collectedIds.length,
+        vehicles: state.collected.length,
         stops: state.visitedIds.length,
         streak: auth.user?.streak ?? 0,
       }
@@ -89,15 +84,33 @@ export const useGameStore = defineStore('game', {
 
     categoryList: (s) => Object.values(s.cats),
 
-    collectedSet: (s) => new Set(s.collectedIds),
+    /** Distinct catalog MODEL ids the player owns at least one instance of. */
+    collectedModelSet: (s) => new Set(s.collected.map((c) => c.vehicleTypeId)),
     visitedSet: (s) => new Set(s.visitedIds),
 
-    /** Collected catalog count per category. */
+    /** Owned instances grouped by model id (newest first within each model). */
+    instancesByModel(state): Map<string, CollectedVehicle[]> {
+      const m = new Map<string, CollectedVehicle[]>()
+      for (const c of state.collected) {
+        const arr = m.get(c.vehicleTypeId)
+        if (arr) arr.push(c)
+        else m.set(c.vehicleTypeId, [c])
+      }
+      return m
+    },
+
+    /** Distinct collected MODELS per category (drives Pokédex coverage). */
     countByCategory(state): Record<CategoryKey, number> {
-      const set = new Set(state.collectedIds)
+      const byId = new Map(state.catalog.map((v) => [v.id, v.category]))
+      const seen = new Set<string>()
       const out = {} as Record<CategoryKey, number>
       for (const k of Object.keys(state.cats) as CategoryKey[]) out[k] = 0
-      for (const v of state.catalog) if (set.has(v.id)) out[v.category] += 1
+      for (const c of state.collected) {
+        if (seen.has(c.vehicleTypeId)) continue
+        seen.add(c.vehicleTypeId)
+        const cat = byId.get(c.vehicleTypeId)
+        if (cat) out[cat] += 1
+      }
       return out
     },
 
@@ -109,7 +122,12 @@ export const useGameStore = defineStore('game', {
       return out
     },
 
-    totalFound: (s) => s.collectedIds.length,
+    /** Total caught instances (drives the count-based achievements + profile). */
+    totalInstances: (s) => s.collected.length,
+    /** Distinct models found (drives Pokédex completion). */
+    totalFound(): number {
+      return this.collectedModelSet.size
+    },
     totalAll: (s) => s.catalog.length,
 
     completionPct(): number {
@@ -131,7 +149,10 @@ export const useGameStore = defineStore('game', {
 
     /** Achievements computed live from real progress (collection + visits). */
     achievements(): Achievement[] {
-      const found = this.totalFound
+      // Count-based badges reward total vehicles caught (every instance); the
+      // completion badges below stay per distinct model.
+      const caught = this.totalInstances
+      const models = this.totalFound
       const visited = this.visitedIds.length
       const byCat = this.countByCategory
       const catTotal = this.catalogCountByCategory
@@ -156,15 +177,15 @@ export const useGameStore = defineStore('game', {
 
       const C = this.cats
       return [
-        mk('První úlovek', 'Vyfoť 1. vozidlo', 'sparkles', 'common', 'var(--xp)', found, 1),
-        mk('Sběratel', 'Ulov 10 modelů', 'layers', 'rare', 'var(--rarity-rare)', found, 10),
-        mk('Mistr sbírky', 'Ulov 25 modelů', 'crown', 'epic', 'var(--rarity-epic)', found, 25),
+        mk('První úlovek', 'Vyfoť 1. vozidlo', 'sparkles', 'common', 'var(--xp)', caught, 1),
+        mk('Sběratel', 'Ulov 10 vozidel', 'layers', 'rare', 'var(--rarity-rare)', caught, 10),
+        mk('Mistr sbírky', 'Ulov 25 vozidel', 'crown', 'epic', 'var(--rarity-epic)', caught, 25),
         mk('Lovec tramvají', 'Všechny tramvaje', 'tram-front', 'epic', C.tram.color, byCat.tram, catTotal.tram),
         mk('Pán autobusů', 'Všechny autobusy', 'bus', 'rare', C.bus.color, byCat.bus, catTotal.bus),
         mk('Metro expert', 'Celé metro', 'train-front-tunnel', 'epic', C.metro.color, byCat.metro, catTotal.metro),
         mk('Cestovatel', 'Navštiv 5 zastávek', 'map-pin', 'common', 'var(--brand)', visited, 5),
         mk('Šotouš na cestách', 'Navštiv 50 zastávek', 'route', 'rare', C.trolley.color, visited, 50),
-        mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', 'var(--rarity-legendary)', found, this.totalAll),
+        mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', 'var(--rarity-legendary)', models, this.totalAll),
       ]
     },
 
@@ -172,12 +193,12 @@ export const useGameStore = defineStore('game', {
       return this.achievements.filter((a) => a.unlocked).length
     },
 
-    /** Collected catalog entries, newest first (for the Profile feed). */
-    recentVehicles(state): CatalogVehicle[] {
+    /** Recently caught instances paired with their catalog model (Profile feed). */
+    recentVehicles(state): { instance: CollectedVehicle; model: CatalogVehicle }[] {
       const byId = new Map(state.catalog.map((v) => [v.id, v]))
-      return state.collectedIds
-        .map((id) => byId.get(id))
-        .filter((v): v is CatalogVehicle => v != null)
+      return state.collected
+        .map((instance) => ({ instance, model: byId.get(instance.vehicleTypeId) }))
+        .filter((x): x is { instance: CollectedVehicle; model: CatalogVehicle } => x.model != null)
         .slice(0, 4)
     },
   },
@@ -203,70 +224,67 @@ export const useGameStore = defineStore('game', {
       }
     },
 
+    /** Map a server progress list into the store (resolving photo URLs). */
+    setCollected(instances: CollectedVehicle[]) {
+      this.collected = instances.map((c) => ({ ...c, imageUrl: mediaUrl(c.imageUrl) ?? null }))
+    },
+
     /** Hydrate the player's saved collection + visits from the server. */
     async loadProgress() {
       const auth = useAuthStore()
       if (!auth.isAuthenticated) return
       try {
-        const { collectedIds, visitedIds, visitedAt, photos, stats } = await progressApi.get()
-        this.collectedIds = collectedIds
+        const { instances, visitedIds, visitedAt } = await progressApi.get()
+        this.setCollected(instances)
         this.visitedIds = visitedIds
         this.visitedAt = visitedAt
-        this.vehicleStats = stats
-        this.collectedPhotos = Object.fromEntries(
-          Object.entries(photos).map(([id, path]) => [id, mediaUrl(path)!]),
-        )
       } catch (err) {
         console.error('Načtení postupu selhalo:', err)
       }
     },
 
     /**
-     * Persist a catch, optionally with the player's photo. XP is awarded
-     * server-side; the user (and the catch photo) are updated from the response.
+     * Catch a vehicle by model + serial. Returns the server outcome — a 'new'
+     * catch (XP + rolled rarity/stats to reveal) or a 'duplicate' (same serial
+     * again) to let the player choose which roll to keep. Errors propagate so the
+     * capture flow can surface them rather than silently losing the catch.
      */
-    async collectVehicle(id: string, photo?: Blob | null): Promise<CaughtReveal | null> {
-      if (this.collectedIds.includes(id)) return null
-      // Note: errors propagate so the capture flow can surface them — a swallowed
-      // failure here means the catch is silently lost and never reaches the park.
-      const res = await progressApi.collectVehicle(id, photo)
-      this.collectedIds = res.collectedIds
-      const url = mediaUrl(res.imageUrl)
-      if (url) this.collectedPhotos = { ...this.collectedPhotos, [id]: url }
-      useAuthStore().setUser(res.user)
-      void this.loadProgress() // pull in the new vehicle's rolled combat stats
-      void this.loadQuests() // a catch may have advanced a quest — refresh progress
-      // Surface the rolled rarity + stats so the capture screen can reveal them.
-      return { rarity: res.rarity, hp: res.stats.hp, maxHp: res.stats.maxHp, attack: res.stats.attack }
+    async collectVehicle(
+      modelId: string,
+      fleetNumber: string | null,
+      photo?: Blob | null,
+    ): Promise<CatchOutcome> {
+      const res = await progressApi.collectVehicle(modelId, fleetNumber, photo)
+      if (res.status === 'new') {
+        useAuthStore().setUser(res.user)
+        void this.loadProgress() // pull in the new instance
+        void this.loadQuests() // a catch may have advanced a quest
+      }
+      return res
     },
 
-    /** Remove a collected vehicle from the park. Reclaims XP server-side. */
-    async removeVehicle(id: string) {
-      if (!this.collectedIds.includes(id)) return
-      const res = await progressApi.removeVehicle(id)
-      this.collectedIds = res.collectedIds
-      const photos = { ...this.collectedPhotos }
-      delete photos[id]
-      this.collectedPhotos = photos
+    /** Resolve a duplicate-serial catch (keep the new roll or the existing one). */
+    async keepCatch(modelId: string, fleetNumber: string, choice: 'new' | 'old') {
+      await progressApi.keepCatch(modelId, fleetNumber, choice)
+      await this.loadProgress()
+    },
+
+    /** Remove one caught instance from the park. Reclaims XP server-side. */
+    async removeVehicle(instanceId: string) {
+      const res = await progressApi.removeVehicle(instanceId)
       useAuthStore().setUser(res.user)
+      await this.loadProgress()
       void this.loadQuests() // catch count dropped — refresh quest progress
     },
 
     /** Wipe all progress (vehicles, stops, quests, XP). Irreversible. */
     async resetProgress() {
       const res = await progressApi.resetProgress()
-      this.collectedIds = res.collectedIds
+      this.setCollected(res.instances)
       this.visitedIds = res.visitedIds
       this.visitedAt = {}
-      this.collectedPhotos = {}
       useAuthStore().setUser(res.user)
       void this.loadQuests()
-    },
-
-    /** Collect by category + short name (what the OCR/capture flow knows). */
-    async collectByModel(category: CategoryKey, shortName: string, photo?: Blob | null) {
-      const v = this.catalog.find((x) => x.category === category && x.shortName === shortName)
-      if (v) await this.collectVehicle(v.id, photo)
     },
 
     /**

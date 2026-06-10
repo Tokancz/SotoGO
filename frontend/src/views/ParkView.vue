@@ -7,7 +7,6 @@ import SgProgressBar from '@/components/ui/SgProgressBar.vue'
 import SgTag from '@/components/ui/SgTag.vue'
 import SgSegmentedControl from '@/components/ui/SgSegmentedControl.vue'
 import SgBadge from '@/components/ui/SgBadge.vue'
-import SgStatTile from '@/components/ui/SgStatTile.vue'
 import SgVehicleCard from '@/components/game/SgVehicleCard.vue'
 import SgIcon from '@/components/SgIcon.vue'
 import SgConfirmDialog from '@/components/ui/SgConfirmDialog.vue'
@@ -25,16 +24,26 @@ useDialog(panelEl, { onClose: () => (detail.value = null), active: () => detail.
 
 const counts = computed(() => game.countByCategory)
 
-/** Catalog filtered by category, collected entries first. */
+const RARITY_ORDER: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 }
+
+/** Catalog filtered by category, collected entries first, with owned-instance info. */
 const list = computed(() => {
-  const collected = game.collectedSet
+  const byModel = game.instancesByModel
   const items = (
     filter.value === 'all' ? game.catalog : game.catalog.filter((v) => v.category === filter.value)
-  ).map((v) => ({ v, collected: collected.has(v.id) }))
+  ).map((v) => {
+    const instances = byModel.get(v.id) ?? []
+    // Card preview uses the rarest owned instance (its rarity + photo).
+    const best = instances.reduce<(typeof instances)[number] | null>(
+      (acc, c) => (acc && RARITY_ORDER[acc.rarity] >= RARITY_ORDER[c.rarity] ? acc : c),
+      null,
+    )
+    return { v, collected: instances.length > 0, count: instances.length, best }
+  })
   return items.sort((a, b) => Number(b.collected) - Number(a.collected))
 })
 
-const newestId = computed(() => game.recentVehicles[0]?.id)
+const newestId = computed(() => game.recentVehicles[0]?.instance.vehicleTypeId)
 
 const stars: Record<Rarity, string> = {
   common: '★',
@@ -44,22 +53,26 @@ const stars: Record<Rarity, string> = {
 }
 
 const detailCat = computed(() => (detail.value ? game.cats[detail.value.category] : null))
-const detailPhoto = computed(() => (detail.value ? game.collectedPhotos[detail.value.id] : undefined))
-const detailStats = computed(() => (detail.value ? game.vehicleStats[detail.value.id] : undefined))
-const detailDeployed = computed(() => detailStats.value?.deployedStopId != null)
-// The rolled rarity of this catch (per instance); falls back to the model's base.
-const detailRarity = computed<Rarity>(() => detailStats.value?.rarity ?? detail.value?.rarity ?? 'common')
+/** All instances the player owns of the open model, rarest first. */
+const detailInstances = computed(() => {
+  if (!detail.value) return []
+  const arr = [...(game.instancesByModel.get(detail.value.id) ?? [])]
+  return arr.sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity])
+})
 
-const confirmDelete = ref(false)
+const confirmDelete = ref<string | null>(null) // instance id pending deletion
 const deleting = ref(false)
 async function performDelete() {
-  const v = detail.value
-  if (!v || deleting.value) return
+  const id = confirmDelete.value
+  if (!id || deleting.value) return
   deleting.value = true
   try {
-    await game.removeVehicle(v.id)
-    confirmDelete.value = false
-    detail.value = null
+    await game.removeVehicle(id)
+    confirmDelete.value = null
+    // Close the sheet if that was the model's last instance.
+    if (detail.value && (game.instancesByModel.get(detail.value.id)?.length ?? 0) === 0) {
+      detail.value = null
+    }
   } catch (err) {
     console.error('Odstranění vozidla selhalo:', err)
   } finally {
@@ -131,9 +144,10 @@ const previewStyle = computed(() =>
           :category="game.cats[item.v.category].label"
           :category-color="game.cats[item.v.category].color"
           :category-icon="game.cats[item.v.category].icon"
-          :rarity="item.collected ? (game.vehicleStats[item.v.id]?.rarity ?? item.v.rarity) : undefined"
+          :rarity="item.collected ? (item.best?.rarity ?? item.v.rarity) : undefined"
           :is-new="item.collected && item.v.id === newestId"
-          :image="item.collected ? game.collectedPhotos[item.v.id] : undefined"
+          :image="item.collected ? (item.best?.imageUrl ?? undefined) : undefined"
+          :count="item.count"
           :compact="view === 'seznam'"
           @click="item.collected && (detail = item.v)"
         />
@@ -144,8 +158,8 @@ const previewStyle = computed(() =>
       <div v-if="detail && detailCat" class="sheet" @click.self="detail = null">
         <div ref="panelEl" class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="vehicle-detail-title">
           <div class="sheet__handle" aria-hidden="true" />
-          <div class="sheet__preview" :class="{ 'sheet__preview--photo': detailPhoto }" :style="detailPhoto ? undefined : previewStyle">
-            <img v-if="detailPhoto" :src="detailPhoto" :alt="detail.shortName" decoding="async" />
+          <div class="sheet__preview" :class="{ 'sheet__preview--photo': detailInstances[0]?.imageUrl }" :style="detailInstances[0]?.imageUrl ? undefined : previewStyle">
+            <img v-if="detailInstances[0]?.imageUrl" :src="detailInstances[0].imageUrl!" :alt="detail.shortName" decoding="async" />
             <SgIcon v-else :name="detailCat.icon" :size="84" />
           </div>
           <div class="sheet__head">
@@ -155,19 +169,36 @@ const previewStyle = computed(() =>
             </div>
             <SgBadge :color="detailCat.color" variant="solid" :icon="detailCat.icon">{{ detailCat.label }}</SgBadge>
           </div>
-          <div class="sheet__stats">
-            <SgStatTile :value="stars[detailRarity]" label="Vzácnost" :color="`var(--rarity-${detailRarity})`" icon="star" />
-            <SgStatTile :value="detail.operator" label="Dopravce" color="var(--brand)" icon="award" />
-            <SgStatTile v-if="detailStats" :value="`${detailStats.hp} / ${detailStats.maxHp}`" label="HP" color="var(--brand)" icon="shield" />
-            <SgStatTile v-if="detailStats" :value="String(detailStats.attack)" label="Útok" color="var(--xp)" icon="zap" />
-          </div>
-          <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }}</div>
-          <p v-if="detailDeployed" class="sheet__deployed">
-            <SgIcon name="award" :size="15" />Toto vozidlo právě brání gym. Stáhni ho z gymu, než ho odstraníš.
-          </p>
-          <button class="sheet__delete" :disabled="deleting || detailDeployed" @click="confirmDelete = true">
-            <SgIcon name="trash-2" :size="16" />Odstranit z parku
-          </button>
+          <div class="sheet__maker"><SgIcon name="layers" :size="15" />{{ detail.manufacturer }} · {{ detail.operator }}</div>
+
+          <h3 class="sheet__insthead">Tvoje vozidla <span>({{ detailInstances.length }})</span></h3>
+          <ul class="instlist">
+            <li v-for="inst in detailInstances" :key="inst.id" class="inst" :class="{ 'inst--deployed': inst.deployedStopId }">
+              <div class="inst__media" :style="inst.imageUrl ? undefined : { background: `color-mix(in srgb, ${detailCat.color} 12%, white)`, color: detailCat.color }">
+                <img v-if="inst.imageUrl" :src="inst.imageUrl" alt="" loading="lazy" decoding="async" />
+                <SgIcon v-else :name="detailCat.icon" :size="22" />
+              </div>
+              <div class="inst__body">
+                <div class="inst__top">
+                  <span class="inst__serial">{{ inst.fleetNumber ? `#${inst.fleetNumber}` : 'Bez čísla' }}</span>
+                  <span class="inst__rarity" :style="{ color: `var(--rarity-${inst.rarity})` }">{{ stars[inst.rarity] }}</span>
+                </div>
+                <div class="inst__stats">
+                  <span><SgIcon name="shield" :size="13" />{{ inst.hp }} / {{ inst.maxHp }}</span>
+                  <span><SgIcon name="zap" :size="13" />{{ inst.attack }}</span>
+                  <span v-if="inst.deployedStopId" class="inst__deployed"><SgIcon name="award" :size="13" />Brání gym</span>
+                </div>
+              </div>
+              <button
+                class="inst__del"
+                :disabled="deleting || inst.deployedStopId != null"
+                :title="inst.deployedStopId ? 'Vozidlo brání gym' : 'Odstranit'"
+                @click="confirmDelete = inst.id"
+              >
+                <SgIcon name="trash-2" :size="16" />
+              </button>
+            </li>
+          </ul>
         </div>
       </div>
     </Teleport>
@@ -181,7 +212,7 @@ const previewStyle = computed(() =>
       danger
       :loading="deleting"
       @confirm="performDelete"
-      @cancel="confirmDelete = false"
+      @cancel="confirmDelete = null"
     />
   </div>
 </template>
@@ -243,7 +274,6 @@ const previewStyle = computed(() =>
 .sheet__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .sheet__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 24px; letter-spacing: -0.01em; }
 .sheet__sub { color: var(--text-muted); margin-top: 2px; }
-.sheet__stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
 .sheet__maker {
   display: flex;
   align-items: center;
@@ -252,6 +282,43 @@ const previewStyle = computed(() =>
   font-size: 13px;
   color: var(--text-secondary);
   svg { color: var(--text-muted); }
+}
+.sheet__insthead {
+  margin: 20px 0 10px;
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 15px;
+  color: var(--text-primary);
+  span { color: var(--text-muted); font-weight: var(--fw-regular); }
+}
+.instlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.inst {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px; border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.inst--deployed { box-shadow: inset 0 0 0 1.5px var(--xp); }
+.inst__media {
+  flex: none; width: 52px; height: 52px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  img { width: 100%; height: 100%; object-fit: cover; }
+}
+.inst__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.inst__top { display: flex; align-items: center; gap: 8px; }
+.inst__serial { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 15px; color: var(--text-primary); }
+.inst__rarity { font-size: 12px; letter-spacing: 1px; }
+.inst__stats {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
+  span { display: inline-flex; align-items: center; gap: 4px; }
+}
+.inst__deployed { color: var(--gold-700); }
+.inst__del {
+  flex: none; width: 38px; height: 38px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer; color: var(--danger-500);
+  background: var(--danger-soft);
+  &:disabled { opacity: 0.4; cursor: default; }
 }
 .sheet__deployed {
   display: flex;

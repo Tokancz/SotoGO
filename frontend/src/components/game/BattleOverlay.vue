@@ -18,6 +18,8 @@ const props = defineProps<{
   attackerName: string
   defenderName: string
   defenderRarity: Rarity
+  /** The holder's catch photo of the defending vehicle (absolute URL), or null. */
+  defenderImage?: string | null
   holderName: string
 }>()
 
@@ -143,17 +145,24 @@ async function finish() {
         <SgIcon :name="result.won ? 'trophy' : 'shield'" :size="48" />
         <h2>{{ result.won ? 'Gym je tvůj!' : result.voided ? 'Obránce zmizel' : 'Obránce vydržel' }}</h2>
         <p v-if="result.won" class="battle__xp">+{{ result.awardedXp }} XP</p>
-        <p v-else-if="!result.voided" class="battle__hint">Obránci zbývá {{ result.defenderHp }} HP. Zkus to znovu.</p>
+        <template v-else-if="!result.voided">
+          <p class="battle__hint">Obránci zbývá {{ result.defenderHp }} HP. Zkus to znovu.</p>
+          <p class="battle__hint battle__hint--warn"><SgIcon name="heart-pulse" :size="14" /> Tvé vozidlo je vyčerpané — musí se zotavit.</p>
+        </template>
         <button class="battle__btn" @click="emit('close')">Hotovo</button>
       </div>
 
-      <!-- Tap target -->
+      <!-- Tap target: the opponent's vehicle (photo when available) -->
       <button
         v-else
         class="battle__tap"
+        :class="{ 'battle__tap--photo': defenderImage }"
+        :style="{ '--def-rarity': rarityColor }"
         :disabled="phase !== 'fighting'"
         @pointerdown.prevent="tap"
       >
+        <img v-if="defenderImage" class="battle__tapimg" :src="defenderImage" :alt="defenderName" />
+        <SgIcon v-else class="battle__tapveh" name="tram-front" :size="84" />
         <span class="battle__taplabel">
           <SgIcon name="zap" :size="34" />
           <span>Ťukej!</span>
@@ -218,22 +227,41 @@ async function finish() {
 .battle__timer--low { color: #ff7a6b; background: rgba(255, 122, 107, 0.14); }
 
 .battle__tap {
+  position: relative;
   flex: 1;
   margin: 4px 0 18px;
   border: none; cursor: pointer;
   border-radius: var(--radius-xl);
-  background: linear-gradient(160deg, var(--brand), #2c8a1c);
+  overflow: hidden;
+  // The opponent's vehicle: a dark panel tinted by its rarity, with the photo
+  // (when available) filling it; the tap label sits on top.
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--def-rarity, var(--brand)) 40%, #16202b), #0e151d);
   color: #fff;
-  box-shadow: 0 14px 40px rgba(67, 176, 42, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45), inset 0 0 0 2px color-mix(in srgb, var(--def-rarity, var(--brand)) 55%, transparent);
   @include flex-center;
   user-select: none;
   transition: transform 0.06s ease, box-shadow 0.06s ease;
-  &:active { transform: scale(0.97); box-shadow: 0 6px 20px rgba(67, 176, 42, 0.35); }
+  &:active { transform: scale(0.97); }
   &:disabled { opacity: 0.5; }
 }
+.battle__tapimg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: 0.85; pointer-events: none;
+}
+.battle__tapveh {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  color: color-mix(in srgb, var(--def-rarity, var(--brand)) 60%, #fff);
+  opacity: 0.5; pointer-events: none;
+}
 .battle__taplabel {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 28px;
+  padding: 14px 26px; border-radius: var(--radius-lg);
+  background: rgba(8, 12, 16, 0.5);
+  backdrop-filter: blur(2px);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
 }
 .battle__atk { font-family: var(--font-mono); font-weight: var(--fw-semibold); font-size: 14px; opacity: 0.85; }
 
@@ -252,6 +280,10 @@ async function finish() {
 .battle__result--lose { background: rgba(255, 255, 255, 0.06); color: var(--text-on-night-muted, #b9c2cc); }
 .battle__xp { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 20px; color: var(--xp); }
 .battle__hint { font-size: 13px; }
+.battle__hint--warn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 4px; color: #f0b04a;
+}
 .battle__btn {
   margin-top: 8px;
   border: none; cursor: pointer;

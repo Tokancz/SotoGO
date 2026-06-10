@@ -11,6 +11,7 @@
     "migrate": "tsx src/db/migrate.ts",
     "seed:vehicles": "tsx src/db/seedVehicleTypes.ts",
     "import:stops": "tsx src/db/importStops.ts",
+    "recompute:gyms": "tsx src/db/recomputeGyms.ts",
     "import:routes": "tsx src/db/importRoutes.ts"
   },
   "dependencies": {

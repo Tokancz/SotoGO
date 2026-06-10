@@ -8,7 +8,7 @@ import { catalogApi } from '@/services/catalog'
 import { gymsApi } from '@/services/gyms'
 import { useGeolocation } from '@/composables/useGeolocation'
 import { useToastStore } from '@/stores/toast'
-import type { ApiStop, BattleResult, CatalogVehicle, GymState, VehicleStats } from '@/types/game'
+import type { ApiStop, BattleResult, CatalogVehicle, CollectedVehicle, GymState } from '@/types/game'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgIcon from '@/components/SgIcon.vue'
 import SgAvatar from '@/components/ui/SgAvatar.vue'
@@ -525,14 +525,19 @@ const inRange = computed(
   () => selected.value != null && distanceMeters.value <= visitRadiusFor(selected.value),
 )
 
-interface IdleVehicle { v: CatalogVehicle; stats: VehicleStats }
-// Collected vehicles not currently defending a gym — the deploy/attack roster.
-const idleVehicles = computed<IdleVehicle[]>(() =>
-  game.catalog
-    .filter((v) => game.collectedSet.has(v.id))
-    .map((v) => ({ v, stats: game.vehicleStats[v.id] }))
-    .filter((x): x is IdleVehicle => x.stats != null && x.stats.deployedStopId == null),
-)
+interface RosterVehicle { instance: CollectedVehicle; model: CatalogVehicle; ready: boolean }
+// Caught instances not defending a gym — the deploy/attack roster. `ready` means
+// idle AND at full HP (a battle-drained vehicle must heal before it can be used).
+const rosterVehicles = computed<RosterVehicle[]>(() => {
+  const byId = new Map(game.catalog.map((v) => [v.id, v]))
+  return game.collected
+    .filter((c) => c.deployedStopId == null)
+    .map((instance) => ({ instance, model: byId.get(instance.vehicleTypeId) }))
+    .filter((x): x is { instance: CollectedVehicle; model: CatalogVehicle } => x.model != null)
+    .map((x) => ({ ...x, ready: x.instance.hp >= x.instance.maxHp }))
+})
+// How many are usable right now (gates the Deploy/Battle buttons).
+const readyCount = computed(() => rosterVehicles.value.filter((r) => r.ready).length)
 
 async function loadGymState(stopId: string) {
   gymState.value = null
@@ -557,16 +562,16 @@ function gymError(err: unknown): string {
   )
 }
 
-async function chooseVehicle(item: IdleVehicle) {
+async function chooseVehicle(item: RosterVehicle) {
   const stop = selected.value
-  if (!stop || gymBusy.value) return
+  if (!stop || gymBusy.value || !item.ready) return
   if (picker.value === 'deploy') {
     gymBusy.value = true
     try {
-      gymState.value = await game.deployToGym(stop.id, item.v.id)
+      gymState.value = await game.deployToGym(stop.id, item.instance.id)
       toast.push({
         title: 'Vozidlo nasazeno',
-        description: `${item.v.shortName} teď brání ${stop.name}`,
+        description: `${item.model.shortName} teď brání ${stop.name}`,
         icon: 'shield',
         color: 'var(--brand)',
       })
@@ -577,7 +582,7 @@ async function chooseVehicle(item: IdleVehicle) {
       picker.value = null
     }
   } else if (picker.value === 'battle') {
-    battle.value = { stopId: stop.id, vehicleId: item.v.id, attackerName: item.v.shortName }
+    battle.value = { stopId: stop.id, vehicleId: item.instance.id, attackerName: item.model.shortName }
     picker.value = null
   }
 }
@@ -776,18 +781,18 @@ function onBattleClose() {
             <button
               v-else-if="gymState.defender"
               class="gymsheet__btn"
-              :disabled="gymBusy || !idleVehicles.length"
+              :disabled="gymBusy || !readyCount"
               @click="picker = 'battle'"
             >
-              <SgIcon name="zap" :size="16" />{{ idleVehicles.length ? 'Bojovat' : 'Nemáš volné vozidlo' }}
+              <SgIcon name="zap" :size="16" />{{ readyCount ? 'Bojovat' : 'Nemáš odpočaté vozidlo' }}
             </button>
             <button
               v-else
               class="gymsheet__btn"
-              :disabled="gymBusy || !idleVehicles.length"
+              :disabled="gymBusy || !readyCount"
               @click="picker = 'deploy'"
             >
-              <SgIcon name="shield" :size="16" />{{ idleVehicles.length ? 'Nasadit vozidlo' : 'Nemáš volné vozidlo' }}
+              <SgIcon name="shield" :size="16" />{{ readyCount ? 'Nasadit vozidlo' : 'Nemáš odpočaté vozidlo' }}
             </button>
           </div>
         </template>
@@ -800,12 +805,17 @@ function onBattleClose() {
         <div class="vpick__handle" aria-hidden="true" />
         <h3 class="vpick__title">{{ picker === 'deploy' ? 'Vyber obránce' : 'Vyber útočníka' }}</h3>
         <ul class="vpick__list">
-          <li v-for="item in idleVehicles" :key="item.v.id">
-            <button class="vpick__item" :disabled="gymBusy" @click="chooseVehicle(item)">
-              <span class="vpick__code" :style="{ color: `var(--rarity-${item.v.rarity})` }">{{ item.v.shortName }}</span>
-              <span class="vpick__cat">{{ game.cats[item.v.category].label }}</span>
-              <span class="vpick__stats">
-                <SgIcon name="zap" :size="12" />{{ item.stats.attack }} · {{ item.stats.maxHp }} HP
+          <li v-for="item in rosterVehicles" :key="item.instance.id">
+            <button class="vpick__item" :disabled="gymBusy || !item.ready" @click="chooseVehicle(item)">
+              <span class="vpick__code" :style="{ color: `var(--rarity-${item.instance.rarity})` }">
+                {{ item.model.shortName }}<span v-if="item.instance.fleetNumber" class="vpick__serial"> #{{ item.instance.fleetNumber }}</span>
+              </span>
+              <span class="vpick__cat">{{ game.cats[item.model.category].label }}</span>
+              <span v-if="item.ready" class="vpick__stats">
+                <SgIcon name="zap" :size="12" />{{ item.instance.attack }} · {{ item.instance.maxHp }} HP
+              </span>
+              <span v-else class="vpick__stats vpick__stats--resting">
+                <SgIcon name="heart-pulse" :size="12" />Odpočívá ({{ item.instance.hp }}/{{ item.instance.maxHp }})
               </span>
             </button>
           </li>
@@ -824,6 +834,7 @@ function onBattleClose() {
       :attacker-name="battle.attackerName"
       :defender-name="gymState.defender.shortName"
       :defender-rarity="gymState.defender.rarity"
+      :defender-image="gymState.defender.imageUrl"
       :holder-name="gymState.holder?.username ?? 'Obránce'"
       @finished="onBattleFinished"
       @close="onBattleClose"
@@ -1167,9 +1178,11 @@ function onBattleClose() {
   &:disabled { opacity: 0.5; }
 }
 .vpick__code { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 16px; flex: none; }
+.vpick__serial { font-size: 13px; opacity: 0.7; }
 .vpick__cat { flex: 1; min-width: 0; font-size: 13px; color: var(--text-secondary); }
 .vpick__stats {
   display: inline-flex; align-items: center; gap: 4px; flex: none;
   font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
 }
+.vpick__stats--resting { color: #d08a2c; }
 </style>

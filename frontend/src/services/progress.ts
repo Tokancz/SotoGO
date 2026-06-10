@@ -1,8 +1,8 @@
 // Player progress API (collection + visits). All endpoints require auth; XP is
 // awarded server-side, so responses carry the updated user.
-import api from './api'
+import api, { mediaUrl } from './api'
 import type { User } from '@/types/auth'
-import type { CategoryKey, Rarity, VehicleStats } from '@/types/game'
+import type { CatchOutcome, CategoryKey, CollectedVehicle } from '@/types/game'
 
 interface MutationResult {
   user: User
@@ -26,49 +26,44 @@ export const progressApi = {
   get: () =>
     api
       .get<{
-        collectedIds: string[]
+        /** Every caught instance (a physical vehicle), newest first. */
+        instances: CollectedVehicle[]
         visitedIds: string[]
         /** stopId → ISO timestamp of the most recent visit (for the re-visit cooldown). */
         visitedAt: Record<string, string>
-        photos: Record<string, string>
-        /** Combat stats per collected vehicle id. */
-        stats: Record<string, VehicleStats>
       }>('/me/progress')
       .then((r) => r.data),
 
-  collectVehicle: (vehicleId: string, photo?: Blob | null) => {
-    // Send multipart when there's a photo so the catch + image land together.
-    let body: FormData | { vehicleId: string }
-    if (photo) {
-      const form = new FormData()
-      form.append('vehicleId', vehicleId)
-      form.append('photo', photo, 'catch.jpg')
-      body = form
-    } else {
-      body = { vehicleId }
-    }
-    return api
-      .post<
-        MutationResult & {
-          collectedIds: string[]
-          imageUrl: string | null
-          /** The catch's rolled rarity + combat stats (also returned on a re-scan). */
-          rarity: Rarity
-          stats: { hp: number; maxHp: number; attack: number }
-        }
-      >('/me/vehicles', body)
-      .then((r) => r.data)
+  /** Catch a vehicle by model + serial. Returns a 'new' catch or a 'duplicate'
+   *  re-roll to choose between (same serial caught again). */
+  collectVehicle: (vehicleId: string, fleetNumber: string | null, photo?: Blob | null) => {
+    const form = new FormData()
+    form.append('vehicleId', vehicleId)
+    if (fleetNumber) form.append('fleetNumber', fleetNumber)
+    if (photo) form.append('photo', photo, 'catch.jpg')
+    return api.post<CatchOutcome & { user: User }>('/me/vehicles', form).then((r) => {
+      // Resolve catch-photo paths to absolute URLs (the duplicate screen shows them).
+      const d = r.data
+      if (d.status === 'duplicate') {
+        d.existing.imageUrl = mediaUrl(d.existing.imageUrl) ?? null
+        d.candidate.imageUrl = mediaUrl(d.candidate.imageUrl) ?? null
+      }
+      return d
+    })
   },
 
-  removeVehicle: (vehicleId: string) =>
-    api
-      .delete<{ user: User; collectedIds: string[] }>(`/me/vehicles/${vehicleId}`)
-      .then((r) => r.data),
+  /** Resolve a duplicate-serial catch: keep the new roll or the existing one. */
+  keepCatch: (vehicleId: string, fleetNumber: string, choice: 'new' | 'old') =>
+    api.post<{ ok: true }>('/me/vehicles/keep', { vehicleId, fleetNumber, choice }).then((r) => r.data),
+
+  /** Remove one caught instance by its id. */
+  removeVehicle: (instanceId: string) =>
+    api.delete<{ user: User }>(`/me/vehicles/${instanceId}`).then((r) => r.data),
 
   /** Wipe all progress (vehicles, stops, quests, XP). Irreversible. */
   resetProgress: () =>
     api
-      .delete<{ user: User; collectedIds: string[]; visitedIds: string[] }>('/me/progress')
+      .delete<{ user: User; instances: CollectedVehicle[]; visitedIds: string[] }>('/me/progress')
       .then((r) => r.data),
 
   visitStop: (stopId: string) =>
