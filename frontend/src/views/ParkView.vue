@@ -26,7 +26,11 @@ const counts = computed(() => game.countByCategory)
 
 const RARITY_ORDER: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 }
 
-/** Catalog filtered by category, collected entries first, with owned-instance info. */
+// Don't paper the grid with every undiscovered model — show all you own, then a
+// few locked "teasers" as a nudge, with the rest summarised below the grid.
+const MAX_LOCKED = 2
+
+/** Catalog filtered by category, with owned-instance info, collected first. */
 const list = computed(() => {
   const byModel = game.instancesByModel
   const items = (
@@ -42,6 +46,24 @@ const list = computed(() => {
   })
   return items.sort((a, b) => Number(b.collected) - Number(a.collected))
 })
+
+/** Collected cards + at most MAX_LOCKED locked teasers (the rest is summarised). */
+const visibleList = computed(() => {
+  const collected = list.value.filter((i) => i.collected)
+  const locked = list.value.filter((i) => !i.collected)
+  return [...collected, ...locked.slice(0, MAX_LOCKED)]
+})
+
+const hiddenLockedCount = computed(
+  () => list.value.filter((i) => !i.collected).length - MAX_LOCKED,
+)
+
+/** Czech plural for "model": 1 → model, 2–4 → modely, 5+ → modelů. */
+function modelsWord(n: number): string {
+  if (n === 1) return 'model'
+  if (n >= 2 && n <= 4) return 'modely'
+  return 'modelů'
+}
 
 const newestId = computed(() => game.recentVehicles[0]?.instance.vehicleTypeId)
 
@@ -136,8 +158,10 @@ const previewStyle = computed(() =>
       <p v-if="!game.catalogLoaded" class="hint">Načítám katalog…</p>
       <div v-else class="grid" :class="{ 'grid--list': view === 'seznam' }">
         <SgVehicleCard
-          v-for="item in list"
+          v-for="(item, i) in visibleList"
           :key="item.v.id"
+          class="sg-rise"
+          :style="{ '--sg-rise-delay': `${Math.min(i, 14) * 32}ms` }"
           :locked="!item.collected"
           :type="item.v.shortName"
           :operator="item.v.manufacturer"
@@ -152,6 +176,11 @@ const previewStyle = computed(() =>
           @click="item.collected && (detail = item.v)"
         />
       </div>
+
+      <p v-if="game.catalogLoaded && hiddenLockedCount > 0" class="discover">
+        <SgIcon name="search" :size="15" />
+        Ještě {{ hiddenLockedCount }} {{ modelsWord(hiddenLockedCount) }} k objevení — lov dál!
+      </p>
     </div>
 
     <Teleport to=".app-shell">
@@ -243,6 +272,21 @@ const previewStyle = computed(() =>
 .grid--list { grid-template-columns: 1fr; }
 
 .hint { padding: 28px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
+
+.discover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  svg { flex: none; }
+}
 
 .sheet { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; background: rgba(11, 15, 20, 0.45); }
 .sheet__panel {

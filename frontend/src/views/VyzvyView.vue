@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
+import { fx, haptic } from '@/lib/feedback'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgChallengeCard from '@/components/game/SgChallengeCard.vue'
 import SgAchievementBadge from '@/components/game/SgAchievementBadge.vue'
@@ -29,6 +30,8 @@ async function onClaim(id: string) {
   claimingId.value = id
   try {
     await game.claimQuest(id)
+    fx.reward()
+    haptic.success()
   } catch (err) {
     console.error('Vyzvednutí odměny selhalo:', err)
   } finally {
@@ -70,7 +73,7 @@ onBeforeUnmount(() => clearInterval(ticker))
       <h2 class="eyebrow screen__eyebrow">Dnešní úkoly</h2>
       <p v-if="!game.quests.length" class="hint">Načítám výzvy…</p>
       <ul v-else class="quests">
-        <li v-for="q in game.quests" :key="q.id">
+        <li v-for="(q, i) in game.quests" :key="q.id" class="sg-rise" :style="{ '--sg-rise-delay': `${i * 55}ms` }">
           <SgChallengeCard
             :title="q.title"
             :icon="q.icon"
@@ -92,7 +95,7 @@ onBeforeUnmount(() => clearInterval(ticker))
         <span class="screen__count">{{ game.unlockedAchievements }}/{{ game.achievements.length }}</span>
       </div>
       <ul class="achievements">
-        <li v-for="(a, i) in game.achievements" :key="i">
+        <li v-for="(a, i) in game.achievements" :key="i" class="sg-rise" :style="{ '--sg-rise-delay': `${Math.min(i, 12) * 30}ms` }">
           <SgAchievementBadge
             :title="a.title"
             :description="a.desc"

@@ -154,6 +154,7 @@ export const useGameStore = defineStore('game', {
       const caught = this.totalInstances
       const models = this.totalFound
       const visited = this.visitedIds.length
+      const streak = this.player.streak
       const byCat = this.countByCategory
       const catTotal = this.catalogCountByCategory
       const mk = (
@@ -185,6 +186,9 @@ export const useGameStore = defineStore('game', {
         mk('Metro expert', 'Celé metro', 'train-front-tunnel', 'epic', C.metro.color, byCat.metro, catTotal.metro),
         mk('Cestovatel', 'Navštiv 5 zastávek', 'map-pin', 'common', 'var(--brand)', visited, 5),
         mk('Šotouš na cestách', 'Navštiv 50 zastávek', 'route', 'rare', C.trolley.color, visited, 50),
+        mk('Ve formě', 'Hraj 3 dny v řadě', 'flame', 'common', 'var(--xp)', streak, 3),
+        mk('Týden v kuse', 'Hraj 7 dní v řadě', 'flame', 'rare', 'var(--rarity-rare)', streak, 7),
+        mk('Neúnavný šotouš', 'Hraj 30 dní v řadě', 'flame', 'legendary', 'var(--rarity-legendary)', streak, 30),
         mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', 'var(--rarity-legendary)', models, this.totalAll),
       ]
     },

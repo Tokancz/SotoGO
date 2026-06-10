@@ -31,9 +31,72 @@
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <link rel="manifest" href="%BASE_URL%site.webmanifest" />
     <meta name="theme-color" content="#43B02A" />
+    <meta name="application-name" content="ŠotoGO" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="ŠotoGO" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Branded boot splash: shown instantly (inline, no asset wait) so launching
+         from the homescreen never flashes a blank page. main.ts fades it out once
+         the first route is ready. Styles are inline & self-contained on purpose. -->
+    <style>
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        background: radial-gradient(120% 90% at 50% 0%, #ffffff, #f1f5f0);
+        transition: opacity 0.45s ease, visibility 0.45s ease;
+      }
+      #boot-splash.is-hidden {
+        opacity: 0;
+        visibility: hidden;
+      }
+      #boot-splash .boot-logo {
+        width: 112px;
+        height: 112px;
+        border-radius: 28px;
+        box-shadow: 0 18px 40px rgba(67, 176, 42, 0.3), 0 4px 12px rgba(20, 26, 33, 0.12);
+        animation: boot-pop 0.6s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+      }
+      #boot-splash .boot-name {
+        font-family: "Fredoka", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-weight: 600;
+        font-size: 26px;
+        letter-spacing: -0.01em;
+        color: #16202b;
+        animation: boot-fade 0.5s ease 0.15s both;
+      }
+      #boot-splash .boot-spin {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid rgba(67, 176, 42, 0.22);
+        border-top-color: #43b02a;
+        animation: boot-rot 0.8s linear infinite;
+      }
+      @keyframes boot-pop {
+        0% { transform: scale(0.6); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      @keyframes boot-fade {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes boot-rot {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-logo,
+        #boot-splash .boot-name { animation: none; }
+        #boot-splash .boot-spin { animation-duration: 1.6s; }
+      }
+    </style>
 
     <!-- Open Graph (Facebook, Messenger, LinkedIn, Discord, …) -->
     <meta property="og:type" content="website" />
@@ -60,6 +123,26 @@
     <meta name="twitter:image" content="https://tokancz.github.io/SotoGO/og-image.png" />
   </head>
   <body>
+    <div id="boot-splash">
+      <svg class="boot-logo" width="112" height="112" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ŠotoGO">
+        <rect width="512" height="512" rx="116" fill="#43B02A" />
+        <rect width="512" height="512" rx="116" fill="url(#bs-sheen)" />
+        <path d="M256 104c-67 0-121 53-121 119 0 84 99 167 116 181a8 8 0 0 0 10 0c17-14 116-97 116-181 0-66-54-119-121-119Z" fill="#FFFFFF" />
+        <circle cx="256" cy="223" r="62" fill="#43B02A" />
+        <rect x="222" y="196" width="68" height="54" rx="14" fill="#FFFFFF" />
+        <circle cx="237" cy="232" r="8" fill="#43B02A" />
+        <circle cx="275" cy="232" r="8" fill="#43B02A" />
+        <rect x="234" y="204" width="44" height="14" rx="5" fill="#43B02A" />
+        <defs>
+          <linearGradient id="bs-sheen" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FFFFFF" stop-opacity="0.12" />
+            <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="boot-name">ŠotoGO</div>
+      <div class="boot-spin"></div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

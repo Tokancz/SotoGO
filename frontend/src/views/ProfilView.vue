@@ -12,6 +12,7 @@ import SgSwitch from '@/components/ui/SgSwitch.vue'
 import SgConfirmDialog from '@/components/ui/SgConfirmDialog.vue'
 import SgIcon from '@/components/SgIcon.vue'
 import { useToastStore } from '@/stores/toast'
+import { useSettingsStore } from '@/stores/settings'
 import { downscaleImageFile } from '@/lib/image'
 
 // Opened rarely, from a settings tap — no reason to ship it on the profile load.
@@ -23,6 +24,7 @@ const player = computed(() => game.player)
 const auth = useAuthStore()
 const router = useRouter()
 const toasts = useToastStore()
+const settings = useSettingsStore()
 
 function logout() {
   auth.logout()
@@ -94,9 +96,9 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
       </header>
 
       <div class="stats">
-        <SgStatTile :value="player.vehicles" label="Vozidel" color="var(--cat-tram)" icon="tram-front" />
-        <SgStatTile :value="player.stops" label="Zastávek" color="var(--brand)" icon="map-pin" />
-        <SgStatTile :value="player.streak" label="dní v sérii" color="var(--xp)" icon="flame" />
+        <SgStatTile class="sg-rise" :style="{ '--sg-rise-delay': '0.05s' }" :value="player.vehicles" label="Vozidel" color="var(--cat-tram)" icon="tram-front" />
+        <SgStatTile class="sg-rise" :style="{ '--sg-rise-delay': '0.12s' }" :value="player.stops" label="Zastávek" color="var(--brand)" icon="map-pin" />
+        <SgStatTile class="sg-rise" :style="{ '--sg-rise-delay': '0.19s' }" :value="player.streak" label="dní v sérii" color="var(--xp)" icon="flame" />
       </div>
 
       <RouterLink :to="{ name: 'zebricek' }" class="leaderlink">
@@ -117,7 +119,7 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
         <span>Zatím žádné úlovky — vyfoť své první vozidlo!</span>
       </p>
       <ul v-else class="recent">
-        <li v-for="{ instance, model } in game.recentVehicles" :key="instance.id" class="recent__row">
+        <li v-for="({ instance, model }, i) in game.recentVehicles" :key="instance.id" class="recent__row sg-rise" :style="{ '--sg-rise-delay': `${i * 50}ms` }">
           <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[model.category].color} 14%, white)`, color: game.cats[model.category].color }">
             <SgIcon :name="game.cats[model.category].icon" :size="20" />
           </div>
@@ -131,15 +133,24 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
 
       <h2 class="eyebrow screen__eyebrow">Nastavení</h2>
       <div class="settings">
+        <div class="settings__row">
+          <SgIcon name="music" :size="20" />
+          <span class="settings__label">Hudba</span>
+          <SgSwitch :model-value="settings.music" @update:model-value="settings.setMusic" />
+        </div>
+        <div class="settings__row">
+          <SgIcon name="volume-2" :size="20" />
+          <span class="settings__label">Zvuky</span>
+          <SgSwitch :model-value="settings.sound" @update:model-value="settings.setSound" />
+        </div>
+        <div class="settings__row">
+          <SgIcon name="vibrate" :size="20" />
+          <span class="settings__label">Vibrace</span>
+          <SgSwitch :model-value="settings.haptics" @update:model-value="settings.setHaptics" />
+        </div>
         <div class="settings__row settings__row--disabled">
           <SgIcon name="bell" :size="20" />
           <span class="settings__label">Push notifikace</span>
-          <span class="settings__soon">Brzy</span>
-          <SgSwitch :model-value="false" disabled />
-        </div>
-        <div class="settings__row settings__row--disabled">
-          <SgIcon name="volume-2" :size="20" />
-          <span class="settings__label">Zvuky a vibrace</span>
           <span class="settings__soon">Brzy</span>
           <SgSwitch :model-value="false" disabled />
         </div>

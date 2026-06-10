@@ -80,8 +80,14 @@ const rankClass = (rank: number) =>
       <p v-else-if="error" class="hint">Žebříček se nepodařilo načíst. Zkus to později.</p>
 
       <template v-else-if="data">
-        <ul class="list">
-          <li v-for="e in data.entries" :key="e.id" class="row" :class="{ 'row--me': isMe(e) }">
+        <ul :key="metric" class="list">
+          <li
+            v-for="(e, i) in data.entries"
+            :key="e.id"
+            class="row sg-rise"
+            :class="{ 'row--me': isMe(e) }"
+            :style="{ '--sg-rise-delay': `${Math.min(i, 14) * 35}ms` }"
+          >
             <span class="row__rank" :class="rankClass(e.rank)">{{ e.rank }}</span>
             <SgAvatar :src="e.avatarUrl ?? undefined" :name="e.username" :size="40" />
             <span class="row__body">
