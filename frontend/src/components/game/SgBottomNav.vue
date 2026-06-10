@@ -118,5 +118,21 @@ defineEmits<{ select: [id: string] }>()
   svg { width: 28px; height: 28px; }
   &:hover { background: var(--brand-hover); }
   &:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--brand-shadow); }
+
+  // A slow ping ring that quietly invites the player to capture — the core loop.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--brand);
+    pointer-events: none;
+    animation: sg-ping 2.6s cubic-bezier(0.2, 0.8, 0.3, 1) infinite;
+  }
+  &:active::before { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sg-bnav__fab::before { animation: none; opacity: 0; }
 }
 </style>

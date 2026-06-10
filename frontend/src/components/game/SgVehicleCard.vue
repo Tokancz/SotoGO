@@ -158,6 +158,7 @@ const vars = computed(() => ({
   position: absolute;
   bottom: 10px;
   left: 10px;
+  --_glow: var(--xp);
   background: var(--xp);
   color: #4a2d00;
   font-family: var(--font-display);
@@ -168,6 +169,7 @@ const vars = computed(() => ({
   padding: 4px 8px;
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-gold);
+  animation: sg-glow 1.9s ease-in-out infinite;
 }
 .sg-vcard__body { padding: 12px 13px 14px; display: flex; flex-direction: column; gap: 3px; }
 .sg-vcard__code {
@@ -247,5 +249,12 @@ const vars = computed(() => ({
   border-radius: 50%;
   background: var(--xp);
   box-shadow: var(--shadow-gold);
+  --_glow: var(--xp);
+  animation: sg-glow 1.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sg-vcard__new,
+  .sg-vcard__newdot { animation: none; }
 }
 </style>

@@ -136,8 +136,10 @@ const previewStyle = computed(() =>
       <p v-if="!game.catalogLoaded" class="hint">Načítám katalog…</p>
       <div v-else class="grid" :class="{ 'grid--list': view === 'seznam' }">
         <SgVehicleCard
-          v-for="item in list"
+          v-for="(item, i) in list"
           :key="item.v.id"
+          class="sg-rise"
+          :style="{ '--sg-rise-delay': `${Math.min(i, 14) * 32}ms` }"
           :locked="!item.collected"
           :type="item.v.shortName"
           :operator="item.v.manufacturer"

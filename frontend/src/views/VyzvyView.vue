@@ -70,7 +70,7 @@ onBeforeUnmount(() => clearInterval(ticker))
       <h2 class="eyebrow screen__eyebrow">Dnešní úkoly</h2>
       <p v-if="!game.quests.length" class="hint">Načítám výzvy…</p>
       <ul v-else class="quests">
-        <li v-for="q in game.quests" :key="q.id">
+        <li v-for="(q, i) in game.quests" :key="q.id" class="sg-rise" :style="{ '--sg-rise-delay': `${i * 55}ms` }">
           <SgChallengeCard
             :title="q.title"
             :icon="q.icon"
@@ -92,7 +92,7 @@ onBeforeUnmount(() => clearInterval(ticker))
         <span class="screen__count">{{ game.unlockedAchievements }}/{{ game.achievements.length }}</span>
       </div>
       <ul class="achievements">
-        <li v-for="(a, i) in game.achievements" :key="i">
+        <li v-for="(a, i) in game.achievements" :key="i" class="sg-rise" :style="{ '--sg-rise-delay': `${Math.min(i, 12) * 30}ms` }">
           <SgAchievementBadge
             :title="a.title"
             :description="a.desc"

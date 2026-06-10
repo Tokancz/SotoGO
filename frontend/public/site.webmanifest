@@ -3,16 +3,52 @@
   "short_name": "ŠotoGO",
   "description": "Chyť je všechny — sbírej tramvaje, autobusy a metro pražské MHD.",
   "lang": "cs",
+  "dir": "ltr",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#F1F5F0",
   "theme_color": "#43B02A",
+  "categories": ["games", "entertainment", "travel"],
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Vyfotit vozidlo",
+      "short_name": "Kamera",
+      "description": "Otevři kameru a ulov nové vozidlo",
+      "url": "./mapa?action=camera",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Vozový park",
+      "short_name": "Park",
+      "description": "Prohlédni si svou sbírku",
+      "url": "./park",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Žebříček",
+      "short_name": "Žebříček",
+      "description": "Porovnej své XP s ostatními",
+      "url": "./zebricek",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "og-image.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "ŠotoGO — chyť je všechny, sbírej MHD"
+    }
   ]
 }

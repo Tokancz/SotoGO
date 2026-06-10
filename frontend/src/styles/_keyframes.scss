@@ -1,4 +1,4 @@
-// ŠotoGO — Global keyframes
+// ŠotoGO — Global keyframes + motion utilities
 // Decorative animation, all gated behind prefers-reduced-motion.
 
 // Map player dot — 2s pulse ring.
@@ -20,8 +20,74 @@
   100% { transform: scale(1);   opacity: 1; }
 }
 
+// Staggered list / reward-line entrance — rise + fade up.
+@keyframes sg-rise {
+  0%   { transform: translateY(14px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+// Floating combat number — drifts up and fades (battle taps).
+@keyframes sg-float-up {
+  0%   { transform: translate(-50%, 0) scale(0.8);   opacity: 0; }
+  15%  { transform: translate(-50%, -6px) scale(1.1); opacity: 1; }
+  100% { transform: translate(-50%, -64px) scale(1);  opacity: 0; }
+}
+
+// Quick attention bump — scale overshoot then settle.
+@keyframes sg-bump {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.18); }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+// Diagonal light sweep across a surface (reward sheen on rare pulls).
+@keyframes sg-sheen {
+  0%   { transform: translateX(-120%) rotate(8deg); }
+  100% { transform: translateX(220%)  rotate(8deg); }
+}
+
+// Slow rotating ray burst behind a reward icon.
+@keyframes sg-rays {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+// Expanding ping ring — invites a tap (camera FAB, etc.).
+@keyframes sg-ping {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  80%, 100% { transform: scale(1.7); opacity: 0; }
+}
+
+// Soft glow breathing — draws the eye to a claimable / legendary thing.
+@keyframes sg-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--_glow, var(--brand)) 0%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--_glow, var(--brand)) 26%, transparent); }
+}
+
+// Shake — outcome feedback (battle win/lose punch).
+@keyframes sg-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+
+// Heartbeat throb — low-timer urgency.
+@keyframes sg-throb {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.07); }
+}
+
 .sg-reward-pop {
   animation: sg-pop 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+
+// Entrance utility: add `.sg-rise` and set `--sg-rise-delay` per item for a
+// cascading reveal (lists, reward lines).
+.sg-rise {
+  animation: sg-rise 0.46s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation-delay: var(--sg-rise-delay, 0s);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -29,5 +95,11 @@
   .sg-reward-pop,
   .sg-scan-line {
     animation: none !important;
+  }
+  // Keep cascade-revealed content visible without the motion.
+  .sg-rise {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

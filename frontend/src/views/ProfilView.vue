@@ -94,9 +94,9 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
       </header>
 
       <div class="stats">
-        <SgStatTile :value="player.vehicles" label="Vozidel" color="var(--cat-tram)" icon="tram-front" />
-        <SgStatTile :value="player.stops" label="Zastávek" color="var(--brand)" icon="map-pin" />
-        <SgStatTile :value="player.streak" label="dní v sérii" color="var(--xp)" icon="flame" />
+        <SgStatTile class="sg-rise" :style="{ '--sg-rise-delay': '0.05s' }" :value="player.vehicles" label="Vozidel" color="var(--cat-tram)" icon="tram-front" />
+        <SgStatTile class="sg-rise" :style="{ '--sg-rise-delay': '0.12s' }" :value="player.stops" label="Zastávek" color="var(--brand)" icon="map-pin" />
+        <SgStatTile class="sg-rise" :style="{ '--sg-rise-delay': '0.19s' }" :value="player.streak" label="dní v sérii" color="var(--xp)" icon="flame" />
       </div>
 
       <RouterLink :to="{ name: 'zebricek' }" class="leaderlink">
@@ -117,7 +117,7 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
         <span>Zatím žádné úlovky — vyfoť své první vozidlo!</span>
       </p>
       <ul v-else class="recent">
-        <li v-for="{ instance, model } in game.recentVehicles" :key="instance.id" class="recent__row">
+        <li v-for="({ instance, model }, i) in game.recentVehicles" :key="instance.id" class="recent__row sg-rise" :style="{ '--sg-rise-delay': `${i * 50}ms` }">
           <div class="recent__icon" :style="{ background: `color-mix(in srgb, ${game.cats[model.category].color} 14%, white)`, color: game.cats[model.category].color }">
             <SgIcon :name="game.cats[model.category].icon" :size="20" />
           </div>

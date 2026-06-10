@@ -45,6 +45,13 @@ let ticker: ReturnType<typeof setInterval> | undefined
 
 const result = ref<BattleResult | null>(null)
 
+// Damage numbers that pop off the defender on each landed tap. Each is removed
+// once its float-up animation has played.
+const floaters = ref<{ id: number; x: number }[]>([])
+let floaterId = 0
+const reduceMotion =
+  typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
+
 const secondsLeft = computed(() => (remainingMs.value / 1000).toFixed(1))
 const rarityColor = computed(() => `var(--rarity-${props.defenderRarity})`)
 
@@ -87,6 +94,13 @@ function tap() {
   lastTapAt = now
   hits.value += 1
   hp.value = Math.max(0, hp.value - attack.value)
+  if (!reduceMotion) {
+    const id = ++floaterId
+    floaters.value.push({ id, x: 32 + Math.random() * 36 })
+    setTimeout(() => {
+      floaters.value = floaters.value.filter((f) => f.id !== id)
+    }, 700)
+  }
   if (hp.value <= 0) void finish()
 }
 
@@ -142,14 +156,17 @@ async function finish() {
       <!-- Result overlay -->
       <div v-if="phase === 'done' && result" class="battle__result"
         :class="result.won ? 'battle__result--win' : 'battle__result--lose'">
-        <SgIcon :name="result.won ? 'trophy' : 'shield'" :size="48" />
-        <h2>{{ result.won ? 'Gym je tvůj!' : result.voided ? 'Obránce zmizel' : 'Obránce vydržel' }}</h2>
-        <p v-if="result.won" class="battle__xp">+{{ result.awardedXp }} XP</p>
+        <div class="battle__resicon" :class="{ 'battle__resicon--win': result.won }">
+          <span v-if="result.won" class="battle__burst" aria-hidden="true" />
+          <SgIcon :name="result.won ? 'trophy' : 'shield'" :size="48" />
+        </div>
+        <h2 class="sg-rise" :style="{ '--sg-rise-delay': '0.12s' }">{{ result.won ? 'Gym je tvůj!' : result.voided ? 'Obránce zmizel' : 'Obránce vydržel' }}</h2>
+        <p v-if="result.won" class="battle__xp sg-rise" :style="{ '--sg-rise-delay': '0.22s' }">+{{ result.awardedXp }} XP</p>
         <template v-else-if="!result.voided">
-          <p class="battle__hint">Obránci zbývá {{ result.defenderHp }} HP. Zkus to znovu.</p>
-          <p class="battle__hint battle__hint--warn"><SgIcon name="heart-pulse" :size="14" /> Tvé vozidlo je vyčerpané — musí se zotavit.</p>
+          <p class="battle__hint sg-rise" :style="{ '--sg-rise-delay': '0.18s' }">Obránci zbývá {{ result.defenderHp }} HP. Zkus to znovu.</p>
+          <p class="battle__hint battle__hint--warn sg-rise" :style="{ '--sg-rise-delay': '0.26s' }"><SgIcon name="heart-pulse" :size="14" /> Tvé vozidlo je vyčerpané — musí se zotavit.</p>
         </template>
-        <button class="battle__btn" @click="emit('close')">Hotovo</button>
+        <button class="battle__btn sg-rise" :style="{ '--sg-rise-delay': '0.34s' }" @click="emit('close')">Hotovo</button>
       </div>
 
       <!-- Tap target: the opponent's vehicle (photo when available) -->
@@ -163,6 +180,13 @@ async function finish() {
       >
         <img v-if="defenderImage" class="battle__tapimg" :src="defenderImage" :alt="defenderName" />
         <SgIcon v-else class="battle__tapveh" name="tram-front" :size="84" />
+        <span
+          v-for="f in floaters"
+          :key="f.id"
+          class="battle__dmg"
+          :style="{ left: `${f.x}%` }"
+          aria-hidden="true"
+        >−{{ attack }}</span>
         <span class="battle__taplabel">
           <SgIcon name="zap" :size="34" />
           <span>Ťukej!</span>
@@ -224,7 +248,11 @@ async function finish() {
   padding: 6px 16px; border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.08);
 }
-.battle__timer--low { color: #ff7a6b; background: rgba(255, 122, 107, 0.14); }
+.battle__timer--low {
+  color: #ff7a6b;
+  background: rgba(255, 122, 107, 0.14);
+  animation: sg-throb 0.7s ease-in-out infinite;
+}
 
 .battle__tap {
   position: relative;
@@ -262,6 +290,23 @@ async function finish() {
   background: rgba(8, 12, 16, 0.5);
   backdrop-filter: blur(2px);
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  // Gentle idle throb invites the player to start hammering.
+  animation: sg-throb 1.5s ease-in-out infinite;
+}
+.battle__tap:active .battle__taplabel { animation: none; }
+
+// Damage numbers flung off the defender on each landed tap.
+.battle__dmg {
+  position: absolute;
+  top: 42%;
+  z-index: 2;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-bold);
+  font-size: 30px;
+  color: #fff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.75), 0 0 14px color-mix(in srgb, var(--def-rarity, var(--brand)) 70%, transparent);
+  animation: sg-float-up 0.7s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
 }
 .battle__atk { font-family: var(--font-mono); font-weight: var(--fw-semibold); font-size: 14px; opacity: 0.85; }
 
@@ -274,7 +319,31 @@ async function finish() {
   border-radius: var(--radius-xl);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
   text-align: center;
+  animation: sg-pop 0.42s cubic-bezier(0.2, 1.2, 0.4, 1) both;
   h2 { font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 24px; }
+}
+.battle__resicon {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.battle__resicon--win {
+  animation: sg-bump 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) 0.1s both;
+  svg { filter: drop-shadow(0 0 14px color-mix(in srgb, var(--xp) 80%, transparent)); color: var(--xp); }
+}
+// Rotating ray burst behind the trophy on a win.
+.battle__burst {
+  position: absolute;
+  width: 170px; height: 170px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--xp) 40%, transparent) 0deg 7deg,
+    transparent 7deg 20deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 30px, #000 38px, transparent 84px);
+  mask: radial-gradient(circle, transparent 30px, #000 38px, transparent 84px);
+  animation: sg-rays 8s linear infinite;
 }
 .battle__result--win { background: rgba(67, 176, 42, 0.16); color: #c8f5b9; }
 .battle__result--lose { background: rgba(255, 255, 255, 0.06); color: var(--text-on-night-muted, #b9c2cc); }
@@ -290,5 +359,13 @@ async function finish() {
   background: #fff; color: #16202b;
   font-family: var(--font-display); font-weight: var(--fw-bold); font-size: 15px;
   padding: 12px 28px; border-radius: var(--radius-pill);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle__timer--low,
+  .battle__taplabel,
+  .battle__result,
+  .battle__resicon--win,
+  .battle__burst { animation: none; }
 }
 </style>

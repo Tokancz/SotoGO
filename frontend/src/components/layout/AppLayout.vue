@@ -69,6 +69,15 @@ function onCaught() {
 }
 
 onMounted(async () => {
+  // Homescreen shortcut "Vyfotit vozidlo" deep-links with ?action=camera —
+  // open the capture sheet, then strip the param so a refresh won't reopen it.
+  if (route.query.action === 'camera') {
+    captureOpen.value = true
+    const { action, ...rest } = route.query
+    void action
+    router.replace({ query: rest })
+  }
+
   game.ensureCatalog()
   game.loadQuests()
   game.checkIn()
@@ -83,7 +92,9 @@ onMounted(async () => {
   <div class="app-shell">
     <main class="app-screen">
       <router-view v-slot="{ Component }">
-        <component :is="Component" />
+        <Transition name="view" mode="out-in">
+          <component :is="Component" :key="active" />
+        </Transition>
       </router-view>
     </main>
 
@@ -94,3 +105,34 @@ onMounted(async () => {
     <SgToastHost />
   </div>
 </template>
+
+<style scoped>
+/* Screen-to-screen route transition — a gentle fade + lift so tab switches feel
+   continuous rather than snapping. Views are position:absolute, and out-in keeps
+   only one mounted at a time, so they never overlap mid-transition. */
+.view-enter-active {
+  transition: opacity 0.26s ease, transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.view-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.view-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.view-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-enter-active,
+  .view-leave-active {
+    transition: opacity 0.12s ease;
+  }
+  .view-enter-from,
+  .view-leave-to {
+    transform: none;
+  }
+}
+</style>

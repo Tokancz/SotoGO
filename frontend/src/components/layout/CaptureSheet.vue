@@ -6,6 +6,7 @@ import { useDialog } from '@/composables/useDialog'
 import { downscaleCanvas, downscaleImageFile } from '@/lib/image'
 import { resolveFleetNumber } from '@/data/fleet'
 import { recognizeApi, type RecognizeResult } from '@/services/recognize'
+import { useCountUp } from '@/composables/useCountUp'
 import type { CatalogVehicle, CatchRoll, CategoryKey, Rarity } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
@@ -52,6 +53,10 @@ const saving = ref(false)
 const saveError = ref(false)
 // A fresh catch's rolled reward (XP + rarity + stats), shown on the result screen.
 const result = ref<{ awardedXp: number; rarity: Rarity; hp: number; maxHp: number; attack: number } | null>(null)
+// Ticks the XP up from 0 on the reveal so the reward feels earned.
+const xpDisplay = useCountUp(() => result.value?.awardedXp ?? 0)
+// Epic/legendary pulls get the extra flourish (sheen sweep + ray burst).
+const isSpecial = computed(() => result.value?.rarity === 'epic' || result.value?.rarity === 'legendary')
 // Same-serial re-catch: the existing instance vs the freshly rolled candidate.
 const dup = ref<{ existing: CatchRoll & { id: string }; candidate: CatchRoll } | null>(null)
 const keeping = ref(false)
@@ -466,26 +471,30 @@ async function restart() {
     </div>
 
     <!-- RESULT: merged XP reward + rarity reveal -->
-    <div v-else-if="phase === 'result' && result" class="capture__reward">
-      <div class="capture__pop sg-reward-pop" :style="{ background: `color-mix(in srgb, ${cat?.color} 22%, transparent)`, boxShadow: `0 0 0 8px color-mix(in srgb, ${cat?.color} 12%, transparent)` }">
-        <div class="capture__pop-inner" :style="{ background: cat?.color }"><SgIcon :name="cat?.icon ?? 'tram-front'" :size="44" /></div>
+    <div v-else-if="phase === 'result' && result" class="capture__reward" :class="{ 'capture__reward--special': isSpecial }">
+      <div class="capture__popwrap">
+        <span v-if="isSpecial" class="capture__rays" :style="{ '--_c': `var(--rarity-${result.rarity})` }" aria-hidden="true" />
+        <div class="capture__pop sg-reward-pop" :style="{ background: `color-mix(in srgb, ${cat?.color} 22%, transparent)`, boxShadow: `0 0 0 8px color-mix(in srgb, ${cat?.color} 12%, transparent)` }">
+          <div class="capture__pop-inner" :style="{ background: cat?.color }"><SgIcon :name="cat?.icon ?? 'tram-front'" :size="44" /></div>
+          <span v-if="isSpecial" class="capture__sheen" aria-hidden="true" />
+        </div>
       </div>
-      <div class="eyebrow capture__tag">Nový objev!</div>
-      <div class="capture__code">
+      <div class="eyebrow capture__tag sg-rise" :style="{ '--sg-rise-delay': '0.18s' }">Nový objev!</div>
+      <div class="capture__code sg-rise" :style="{ '--sg-rise-delay': '0.24s' }">
         {{ matched?.shortName }}<template v-if="serial"> #{{ serial }}</template>
       </div>
-      <div class="capture__sub">{{ cat?.label }} · {{ matched?.operator }}</div>
+      <div class="capture__sub sg-rise" :style="{ '--sg-rise-delay': '0.3s' }">{{ cat?.label }} · {{ matched?.operator }}</div>
 
-      <div class="capture__rarity capture__rarity--badge" :style="{ color: `var(--rarity-${result.rarity})` }">
+      <div class="capture__rarity capture__rarity--badge sg-rise" :style="{ color: `var(--rarity-${result.rarity})`, '--sg-rise-delay': '0.38s' }">
         {{ rarityLabels[result.rarity] }}
       </div>
-      <div class="capture__statpills">
+      <div class="capture__statpills sg-rise" :style="{ '--sg-rise-delay': '0.46s' }">
         <span class="capture__statpill"><SgIcon name="shield" :size="15" />{{ result.maxHp }} HP</span>
         <span class="capture__statpill"><SgIcon name="zap" :size="15" />{{ result.attack }} ATK</span>
       </div>
-      <div class="capture__xp"><SgIcon name="zap" :size="20" /> +{{ result.awardedXp }} XP</div>
+      <div class="capture__xp sg-rise" :style="{ '--sg-rise-delay': '0.54s' }"><SgIcon name="zap" :size="20" /> +{{ xpDisplay }} XP</div>
 
-      <SgButton variant="reward" size="lg" full-width leading-icon="check" @click="finish">Hotovo</SgButton>
+      <SgButton class="sg-rise" :style="{ '--sg-rise-delay': '0.64s' }" variant="reward" size="lg" full-width leading-icon="check" @click="finish">Hotovo</SgButton>
     </div>
   </div>
 </template>
@@ -800,14 +809,51 @@ async function restart() {
   padding: 0 24px 30px;
   text-align: center;
 }
-.capture__pop {
-  width: 110px;
-  height: 110px;
-  border-radius: 50%;
+.capture__popwrap {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 18px;
+}
+/* Rotating ray burst behind epic/legendary pulls. */
+.capture__rays {
+  position: absolute;
+  width: 230px;
+  height: 230px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--_c, var(--gold-300)) 32%, transparent) 0deg 8deg,
+    transparent 8deg 22deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 46px, #000 54px, transparent 112px);
+  mask: radial-gradient(circle, transparent 46px, #000 54px, transparent 112px);
+  animation: sg-rays 9s linear infinite;
+  opacity: 0.9;
+}
+.capture__pop {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Diagonal light sweep across the medallion on rare pulls. */
+.capture__sheen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  filter: blur(2px);
+  animation: sg-sheen 1.4s ease-in-out 0.5s 2;
 }
 .capture__pop-inner {
   width: 80px;
@@ -908,5 +954,8 @@ async function restart() {
 
 @media (prefers-reduced-motion: reduce) {
   .capture__scanline { animation: none; top: 50%; }
+  .capture__rays,
+  .capture__sheen { animation: none; }
+  .capture__sheen { display: none; }
 }
 </style>
