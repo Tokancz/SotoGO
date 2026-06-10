@@ -23,7 +23,11 @@ import {
 export const meRouter = Router()
 meRouter.use(requireAuth)
 
+// First catch of a MODEL awards the full bonus; additional serials of a model you
+// already own award less (discourages farming the same model). Same-serial recatch
+// awards nothing (it's a re-roll choice, see the duplicate flow).
 const CATCH_XP = 100
+const EXTRA_CATCH_XP = 25
 
 // Catch photos arrive as multipart/form-data ("photo" field). Held in memory so
 // we only persist the file once we know it's a genuinely new catch.
@@ -57,12 +61,71 @@ async function awardXp(userId: string, amount: number) {
   return user
 }
 
-async function collectedIds(userId: string): Promise<string[]> {
-  const { rows } = await pool.query(
-    'select vehicle_type_id from user_vehicles where user_id = $1 order by found_at desc',
+/** One caught vehicle INSTANCE (a physical vehicle, identified by its serial). */
+interface CollectedInstance {
+  id: string
+  vehicleTypeId: string
+  fleetNumber: string | null
+  rarity: string
+  hp: number
+  maxHp: number
+  attack: number
+  deployedStopId: string | null
+  imageUrl: string | null
+  foundAt: string
+}
+
+/**
+ * Every caught instance for a player, newest first, with live HP:
+ *  - deployed vehicles heal on `gym_state` (regen there),
+ *  - idle vehicles heal from `hp_updated_at` (so a battle-drained vehicle recovers
+ *    over time and can't be used again until it's back to full).
+ */
+async function collectedInstances(userId: string): Promise<CollectedInstance[]> {
+  const { rows } = await pool.query<{
+    id: string
+    vehicle_type_id: string
+    fleet_number: string | null
+    rarity: string
+    hp: number
+    max_hp: number
+    attack: number
+    deployed_stop_id: string | null
+    image_url: string | null
+    found_at: string
+    hp_updated_at: string
+    defender_hp: number | null
+    last_regen_at: string | null
+  }>(
+    `select uv.id, uv.vehicle_type_id, uv.fleet_number, uv.rarity, uv.hp, uv.max_hp, uv.attack,
+            uv.deployed_stop_id, uv.image_url, uv.found_at, uv.hp_updated_at,
+            g.defender_hp, g.last_regen_at
+       from user_vehicles uv
+       left join gym_state g on g.vehicle_id = uv.id
+      where uv.user_id = $1
+      order by uv.found_at desc`,
     [userId],
   )
-  return rows.map((r) => String(r.vehicle_type_id))
+  const now = Date.now()
+  return rows.map((r) => {
+    const hp = r.deployed_stop_id
+      ? r.defender_hp != null && r.last_regen_at
+        ? regenHp(r.defender_hp, r.max_hp, new Date(r.last_regen_at).getTime(), now)
+        : r.hp
+      : regenHp(r.hp, r.max_hp, new Date(r.hp_updated_at).getTime(), now)
+    return {
+      id: String(r.id),
+      vehicleTypeId: String(r.vehicle_type_id),
+      fleetNumber: r.fleet_number,
+      rarity: r.rarity,
+      hp,
+      maxHp: r.max_hp,
+      attack: r.attack,
+      deployedStopId: r.deployed_stop_id ? String(r.deployed_stop_id) : null,
+      imageUrl: r.image_url,
+      foundAt: new Date(r.found_at).toISOString(),
+    }
+  })
 }
 
 interface VisitedStops {
@@ -87,75 +150,19 @@ async function visitedStops(userId: string): Promise<VisitedStops> {
   return { ids, visitedAt }
 }
 
-/** Combat stats per collected vehicle id (HP regen applied for any deployed ones). */
-async function collectedStats(userId: string) {
-  const { rows } = await pool.query<{
-    vehicle_type_id: string
-    rarity: string
-    hp: number
-    max_hp: number
-    attack: number
-    deployed_stop_id: string | null
-    defender_hp: number | null
-    last_regen_at: string | null
-  }>(
-    `select uv.vehicle_type_id, uv.rarity, uv.hp, uv.max_hp, uv.attack, uv.deployed_stop_id,
-            g.defender_hp, g.last_regen_at
-       from user_vehicles uv
-       left join gym_state g on g.stop_id = uv.deployed_stop_id and g.holder_user_id = uv.user_id
-      where uv.user_id = $1`,
-    [userId],
-  )
-  const now = Date.now()
-  const out: Record<
-    string,
-    { rarity: string; hp: number; maxHp: number; attack: number; deployedStopId: string | null }
-  > = {}
-  for (const r of rows) {
-    // A deployed vehicle's live HP lives on gym_state (with regen); an idle one is full.
-    const hp =
-      r.defender_hp != null && r.last_regen_at
-        ? regenHp(r.defender_hp, r.max_hp, new Date(r.last_regen_at).getTime(), now)
-        : r.hp
-    out[String(r.vehicle_type_id)] = {
-      rarity: r.rarity,
-      hp,
-      maxHp: r.max_hp,
-      attack: r.attack,
-      deployedStopId: r.deployed_stop_id ? String(r.deployed_stop_id) : null,
-    }
-  }
-  return out
-}
-
-/** Map of collected vehicle id → the player's catch photo (only those with one). */
-async function collectedPhotos(userId: string): Promise<Record<string, string>> {
-  const { rows } = await pool.query<{ vehicle_type_id: string; image_url: string }>(
-    'select vehicle_type_id, image_url from user_vehicles where user_id = $1 and image_url is not null',
-    [userId],
-  )
-  const out: Record<string, string> = {}
-  for (const r of rows) out[String(r.vehicle_type_id)] = r.image_url
-  return out
-}
-
 // GET /api/me/progress — everything needed to rehydrate the collection on load.
 meRouter.get(
   '/progress',
   asyncHandler(async (req: AuthedRequest, res) => {
     const userId = req.userId!
-    const [collected, visited, photos, stats] = await Promise.all([
-      collectedIds(userId),
+    const [instances, visited] = await Promise.all([
+      collectedInstances(userId),
       visitedStops(userId),
-      collectedPhotos(userId),
-      collectedStats(userId),
     ])
     res.json({
-      collectedIds: collected,
+      instances,
       visitedIds: visited.ids,
       visitedAt: visited.visitedAt,
-      photos,
-      stats,
     })
   }),
 )
@@ -177,6 +184,7 @@ meRouter.delete(
       pool.query('delete from user_stops where user_id = $1', [userId]),
       pool.query('delete from user_quest_claims where user_id = $1', [userId]),
       pool.query('delete from user_quest_completions where user_id = $1', [userId]),
+      pool.query('delete from pending_catches where user_id = $1', [userId]),
       // Abandon any gyms this player holds and drop their battle history.
       pool.query('delete from gym_state where holder_user_id = $1', [userId]),
       pool.query('delete from gym_battles where attacker_user_id = $1', [userId]),
@@ -192,12 +200,15 @@ meRouter.delete(
     // Best-effort cleanup of the stored catch photos (the rows are already gone).
     await Promise.all(del.rows.map((r) => deleteImage(r.image_url)))
 
-    res.json({ user: publicUser(rows[0]), collectedIds: [], visitedIds: [] })
+    res.json({ user: publicUser(rows[0]), instances: [], visitedIds: [] })
   }),
 )
 
-// POST /api/me/vehicles — record a catch; award XP if it's new. Accepts
-// multipart/form-data: a `vehicleId` field and an optional `photo` image.
+// POST /api/me/vehicles — record a catch of a physical vehicle (per serial).
+// multipart/form-data: `vehicleId` (model), optional `fleetNumber` (serial), and
+// an optional `photo`. A brand-new serial (or a model you don't own) is a catch;
+// re-catching the SAME serial parks a re-rolled candidate for the player to choose
+// between (status 'duplicate') instead of overwriting.
 meRouter.post(
   '/vehicles',
   upload.single('photo'),
@@ -205,6 +216,9 @@ meRouter.post(
     const userId = req.userId!
     const vehicleId = String(req.body?.vehicleId ?? '')
     if (!vehicleId) return res.status(400).json({ error: 'Chybí vehicleId.' })
+    // Digits only; empty → unknown serial (each unknown catch is its own instance).
+    const rawNumber = typeof req.body?.fleetNumber === 'string' ? req.body.fleetNumber.replace(/\D/g, '') : ''
+    const serial = rawNumber || null
 
     const vt = await pool.query<{ rarity: string }>(
       'select rarity from vehicle_types where id = $1',
@@ -212,49 +226,72 @@ meRouter.post(
     )
     if (!vt.rowCount) return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
 
-    // Keep the FIRST catch and its photo — a re-scan just reports current state.
-    const prior = await pool.query<{
-      image_url: string | null
+    const existing = await pool.query<{
+      id: string
+      fleet_number: string | null
       rarity: string
       hp: number
       max_hp: number
       attack: number
+      image_url: string | null
     }>(
-      'select image_url, rarity, hp, max_hp, attack from user_vehicles where user_id = $1 and vehicle_type_id = $2',
+      'select id, fleet_number, rarity, hp, max_hp, attack, image_url from user_vehicles where user_id = $1 and vehicle_type_id = $2',
       [userId, vehicleId],
     )
-
-    if (prior.rowCount) {
-      const user = (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
-      const ids = await collectedIds(userId)
-      const p = prior.rows[0]
-      return res.json({
-        user: publicUser(user),
-        collectedIds: ids,
-        awardedXp: 0,
-        imageUrl: p.image_url,
-        rarity: p.rarity,
-        stats: { hp: p.hp, maxHp: p.max_hp, attack: p.attack },
-      })
-    }
+    const ownsModel = existing.rows.length > 0
+    const dupe = serial ? existing.rows.find((r) => r.fleet_number === serial) : undefined
 
     const imageUrl = req.file ? await saveImage(req.file.buffer, req.file.mimetype) : null
     // Roll this catch's rarity (biased by the model's base rarity), then its
     // combat stats from that rolled rarity (see lib/combat.ts).
     const rarity = rollRarity(vt.rows[0].rarity)
     const { maxHp, attack } = rollStats(rarity)
-    await pool.query(
-      `insert into user_vehicles (user_id, vehicle_type_id, image_url, rarity, max_hp, hp, attack)
-       values ($1, $2, $3, $4, $5, $5, $6)`,
-      [userId, vehicleId, imageUrl, rarity, maxHp, attack],
+
+    if (dupe) {
+      // Same serial again → park the candidate; the player decides via /vehicles/keep.
+      const prev = await pool.query<{ image_url: string | null }>(
+        'select image_url from pending_catches where user_id = $1 and vehicle_type_id = $2 and fleet_number = $3',
+        [userId, vehicleId, serial],
+      )
+      await pool.query(
+        `insert into pending_catches (user_id, vehicle_type_id, fleet_number, rarity, max_hp, attack, image_url)
+         values ($1, $2, $3, $4, $5, $6, $7)
+         on conflict (user_id, vehicle_type_id, fleet_number)
+         do update set rarity = excluded.rarity, max_hp = excluded.max_hp, attack = excluded.attack,
+                       image_url = excluded.image_url, created_at = now()`,
+        [userId, vehicleId, serial, rarity, maxHp, attack, imageUrl],
+      )
+      // Drop any superseded candidate photo.
+      if (prev.rowCount && prev.rows[0].image_url) await deleteImage(prev.rows[0].image_url)
+      return res.json({
+        status: 'duplicate',
+        existing: {
+          id: String(dupe.id),
+          fleetNumber: serial,
+          rarity: dupe.rarity,
+          hp: dupe.hp,
+          maxHp: dupe.max_hp,
+          attack: dupe.attack,
+          imageUrl: dupe.image_url,
+        },
+        candidate: { fleetNumber: serial, rarity, hp: maxHp, maxHp, attack, imageUrl },
+      })
+    }
+
+    const ins = await pool.query<{ id: string }>(
+      `insert into user_vehicles (user_id, vehicle_type_id, fleet_number, image_url, rarity, max_hp, hp, attack)
+       values ($1, $2, $3, $4, $5, $6, $6, $7) returning id`,
+      [userId, vehicleId, serial, imageUrl, rarity, maxHp, attack],
     )
-    const user = await awardXp(userId, CATCH_XP)
-    const ids = await collectedIds(userId)
+    const awardedXp = ownsModel ? EXTRA_CATCH_XP : CATCH_XP
+    const user = await awardXp(userId, awardedXp)
 
     res.json({
+      status: 'new',
       user: publicUser(user),
-      collectedIds: ids,
-      awardedXp: CATCH_XP,
+      awardedXp,
+      instanceId: String(ins.rows[0].id),
+      fleetNumber: serial,
       imageUrl,
       rarity,
       stats: { hp: maxHp, maxHp, attack },
@@ -262,36 +299,92 @@ meRouter.post(
   }),
 )
 
-// DELETE /api/me/vehicles/:id — remove a catch from the collection. Reclaims the
-// catch XP (floored at 0) so deleting + re-catching can't farm XP, and cleans up
-// the stored photo.
+// POST /api/me/vehicles/keep — resolve a duplicate-serial catch: keep the freshly
+// rolled candidate ('new', overwriting the existing instance) or discard it ('old').
+// No XP either way. Body: { vehicleId, fleetNumber, choice }.
+meRouter.post(
+  '/vehicles/keep',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const vehicleId = String(req.body?.vehicleId ?? '')
+    const fleetNumber = typeof req.body?.fleetNumber === 'string' ? req.body.fleetNumber.replace(/\D/g, '') : ''
+    const choice = req.body?.choice === 'new' ? 'new' : 'old'
+    if (!vehicleId || !fleetNumber) return res.status(400).json({ error: 'Chybí parametry.' })
+
+    const pend = await pool.query<{ rarity: string; max_hp: number; attack: number; image_url: string | null }>(
+      'select rarity, max_hp, attack, image_url from pending_catches where user_id = $1 and vehicle_type_id = $2 and fleet_number = $3',
+      [userId, vehicleId, fleetNumber],
+    )
+    if (!pend.rowCount) return res.status(404).json({ error: 'Žádný čekající úlovek.' })
+    const p = pend.rows[0]
+
+    const ex = await pool.query<{ id: string; image_url: string | null; deployed_stop_id: string | null }>(
+      'select id, image_url, deployed_stop_id from user_vehicles where user_id = $1 and vehicle_type_id = $2 and fleet_number = $3',
+      [userId, vehicleId, fleetNumber],
+    )
+    if (!ex.rowCount) {
+      await pool.query('delete from pending_catches where user_id = $1 and vehicle_type_id = $2 and fleet_number = $3', [userId, vehicleId, fleetNumber])
+      if (p.image_url) await deleteImage(p.image_url)
+      return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
+    }
+    const e = ex.rows[0]
+    if (e.deployed_stop_id) return res.status(409).json({ error: 'Vozidlo brání gym. Nejdřív ho stáhni.' })
+
+    if (choice === 'new') {
+      // Overwrite the existing instance with the candidate (full HP), swap the photo.
+      await pool.query(
+        'update user_vehicles set rarity = $1, max_hp = $2, hp = $2, attack = $3, image_url = $4, hp_updated_at = now() where id = $5',
+        [p.rarity, p.max_hp, p.attack, p.image_url, e.id],
+      )
+      if (e.image_url) await deleteImage(e.image_url)
+    } else if (p.image_url) {
+      await deleteImage(p.image_url)
+    }
+    await pool.query('delete from pending_catches where user_id = $1 and vehicle_type_id = $2 and fleet_number = $3', [userId, vehicleId, fleetNumber])
+    res.json({ ok: true })
+  }),
+)
+
+// DELETE /api/me/vehicles/:id — remove one caught INSTANCE. Reclaims the XP that
+// catch awarded (full bonus if it was the last instance of the model, the reduced
+// amount otherwise), so delete + re-catch can't farm XP, and cleans up the photo.
 meRouter.delete(
   '/vehicles/:id',
   asyncHandler(async (req: AuthedRequest, res) => {
     const userId = req.userId!
-    const vehicleId = req.params.id
+    const instanceId = req.params.id
 
-    // A vehicle defending a gym is locked — recall it first.
-    const deployed = await pool.query(
-      'select 1 from user_vehicles where user_id = $1 and vehicle_type_id = $2 and deployed_stop_id is not null',
-      [userId, vehicleId],
+    const inst = await pool.query<{ vehicle_type_id: string; deployed_stop_id: string | null }>(
+      'select vehicle_type_id, deployed_stop_id from user_vehicles where user_id = $1 and id = $2',
+      [userId, instanceId],
     )
-    if (deployed.rowCount) {
+    if (!inst.rowCount) {
+      const user = (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+      return res.json({ user: publicUser(user) })
+    }
+    // A vehicle defending a gym is locked — recall it first.
+    if (inst.rows[0].deployed_stop_id) {
       return res.status(409).json({ error: 'Vozidlo brání gym. Nejdřív ho stáhni.' })
     }
 
-    const del = await pool.query<{ image_url: string | null }>(
-      'delete from user_vehicles where user_id = $1 and vehicle_type_id = $2 returning image_url',
-      [userId, vehicleId],
+    // Refund what this catch awarded: the first-catch bonus only if it's the last
+    // instance of the model, otherwise the reduced extra-serial amount.
+    const cnt = await pool.query<{ n: number }>(
+      'select count(*)::int n from user_vehicles where user_id = $1 and vehicle_type_id = $2',
+      [userId, inst.rows[0].vehicle_type_id],
     )
+    const refund = cnt.rows[0].n <= 1 ? CATCH_XP : EXTRA_CATCH_XP
 
+    const del = await pool.query<{ image_url: string | null }>(
+      'delete from user_vehicles where user_id = $1 and id = $2 returning image_url',
+      [userId, instanceId],
+    )
     const user = del.rowCount
-      ? await awardXp(userId, -CATCH_XP)
+      ? await awardXp(userId, -refund)
       : (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
     if (del.rowCount) await deleteImage(del.rows[0].image_url)
 
-    const ids = await collectedIds(userId)
-    res.json({ user: publicUser(user), collectedIds: ids })
+    res.json({ user: publicUser(user) })
   }),
 )
 
@@ -389,6 +482,7 @@ interface GymRow {
   stop_id: string
   holder_user_id: string
   vehicle_type_id: string
+  vehicle_id: string | null
   defender_hp: number
   defender_max_hp: number
   defender_attack: number
@@ -422,29 +516,55 @@ async function finalizeHolding(holderId: string, heldSinceIso: string): Promise<
   }
 }
 
+/** Release a gym's defending instance back to the holder, healed to full. Targets
+ *  the exact instance via `vehicle_id`; falls back to the model for legacy rows. */
+async function freeDefender(g: GymRow): Promise<void> {
+  if (g.vehicle_id) {
+    await pool.query(
+      'update user_vehicles set deployed_stop_id = null, hp = max_hp, hp_updated_at = now() where id = $1',
+      [g.vehicle_id],
+    )
+  } else {
+    await pool.query(
+      'update user_vehicles set deployed_stop_id = null, hp = max_hp, hp_updated_at = now() where user_id = $1 and vehicle_type_id = $2 and deployed_stop_id = $3',
+      [g.holder_user_id, g.vehicle_type_id, g.stop_id],
+    )
+  }
+}
+
 async function defenderPayload(g: GymRow, hp: number) {
   const { rows } = await pool.query<{
     model: string
     short_name: string
     rarity: string
+    image_url: string | null
     username: string
     avatar_url: string | null
     holder_id: string
   }>(
-    // Prefer the deployed instance's rolled rarity; fall back to the model's base.
-    `select vt.model, vt.short_name, coalesce(uv.rarity, vt.rarity) as rarity,
+    // The exact deployed instance gives the rolled rarity + catch photo; fall back
+    // to the model's base rarity for legacy rows with no vehicle_id.
+    `select vt.model, vt.short_name, coalesce(uv.rarity, vt.rarity) as rarity, uv.image_url,
             u.username, u.avatar_url, u.id as holder_id
        from vehicle_types vt
        join users u on u.id = $2
-       left join user_vehicles uv on uv.user_id = $2 and uv.vehicle_type_id = $1
+       left join user_vehicles uv on uv.id = $3
       where vt.id = $1`,
-    [g.vehicle_type_id, g.holder_user_id],
+    [g.vehicle_type_id, g.holder_user_id, g.vehicle_id],
   )
   const r = rows[0]
   return {
     holder: r ? { id: String(r.holder_id), username: r.username, avatarUrl: r.avatar_url } : null,
     defender: r
-      ? { model: r.model, shortName: r.short_name, rarity: r.rarity, hp, maxHp: g.defender_max_hp, attack: g.defender_attack }
+      ? {
+          model: r.model,
+          shortName: r.short_name,
+          rarity: r.rarity,
+          imageUrl: r.image_url,
+          hp,
+          maxHp: g.defender_max_hp,
+          attack: g.defender_attack,
+        }
       : null,
     heldSince: g.held_since,
   }
@@ -462,48 +582,68 @@ meRouter.get(
   }),
 )
 
-/** Look up an idle (not-deployed) vehicle the player owns; null if missing/deployed. */
-async function idleVehicle(userId: string, vehicleId: string) {
-  const { rows } = await pool.query<{ max_hp: number; attack: number; deployed_stop_id: string | null }>(
-    'select max_hp, attack, deployed_stop_id from user_vehicles where user_id = $1 and vehicle_type_id = $2',
-    [userId, vehicleId],
+/**
+ * A specific caught instance the player owns that is READY for a gym (idle and at
+ * full HP). Returns null if it's missing, deployed, or still healing — a
+ * battle-drained vehicle must regenerate to full before it can be used again.
+ */
+async function readyVehicle(userId: string, instanceId: string) {
+  const { rows } = await pool.query<{
+    vehicle_type_id: string
+    max_hp: number
+    attack: number
+    hp: number
+    hp_updated_at: string
+    deployed_stop_id: string | null
+  }>(
+    'select vehicle_type_id, max_hp, attack, hp, hp_updated_at, deployed_stop_id from user_vehicles where user_id = $1 and id = $2',
+    [userId, instanceId],
   )
-  return rows[0] ?? null
+  const v = rows[0]
+  if (!v) return { v: null as null, reason: 'missing' as const }
+  if (v.deployed_stop_id) return { v: null, reason: 'deployed' as const }
+  const hp = regenHp(v.hp, v.max_hp, new Date(v.hp_updated_at).getTime(), Date.now())
+  if (hp < v.max_hp) return { v: null, reason: 'resting' as const }
+  return { v, reason: null }
 }
 
-// POST /api/me/gyms/:stopId/deploy — place one of your vehicles to defend an open gym.
+// POST /api/me/gyms/:stopId/deploy — place one of your vehicles to defend an open
+// gym. `vehicleId` is the caught-instance id; it must be idle and at full HP.
 meRouter.post(
   '/gyms/:stopId/deploy',
   asyncHandler(async (req: AuthedRequest, res) => {
     const userId = req.userId!
     const stopId = req.params.stopId
-    const vehicleId = String(req.body?.vehicleId ?? '')
+    const instanceId = String(req.body?.vehicleId ?? '')
 
     const stop = await pool.query<{ is_gym: boolean }>('select is_gym from stops where id = $1', [stopId])
     if (!stop.rowCount) return res.status(404).json({ error: 'Zastávka nenalezena.' })
     if (!stop.rows[0].is_gym) return res.status(400).json({ error: 'Tato zastávka není gym.' })
 
-    const v = await idleVehicle(userId, vehicleId)
-    if (!v) return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
-    if (v.deployed_stop_id) return res.status(409).json({ error: 'Vozidlo už brání jiný gym.' })
+    const { v, reason } = await readyVehicle(userId, instanceId)
+    if (!v) {
+      if (reason === 'deployed') return res.status(409).json({ error: 'Vozidlo už brání jiný gym.' })
+      if (reason === 'resting') return res.status(409).json({ error: 'Vozidlo je vyčerpané. Počkej, až se zotaví.' })
+      return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
+    }
 
     // Claim the vehicle first (guards against deploying it to two gyms at once)…
     const claim = await pool.query(
-      'update user_vehicles set deployed_stop_id = $1, hp = max_hp where user_id = $2 and vehicle_type_id = $3 and deployed_stop_id is null',
-      [stopId, userId, vehicleId],
+      'update user_vehicles set deployed_stop_id = $1, hp = max_hp, hp_updated_at = now() where user_id = $2 and id = $3 and deployed_stop_id is null',
+      [stopId, userId, instanceId],
     )
     if (!claim.rowCount) return res.status(409).json({ error: 'Vozidlo už brání jiný gym.' })
 
     // …then claim the gym slot. On conflict the gym is taken — release the vehicle.
     const ins = await pool.query(
-      `insert into gym_state (stop_id, holder_user_id, vehicle_type_id, defender_hp, defender_max_hp, defender_attack)
-       values ($1, $2, $3, $4, $4, $5) on conflict (stop_id) do nothing returning stop_id`,
-      [stopId, userId, vehicleId, v.max_hp, v.attack],
+      `insert into gym_state (stop_id, holder_user_id, vehicle_type_id, vehicle_id, defender_hp, defender_max_hp, defender_attack)
+       values ($1, $2, $3, $4, $5, $5, $6) on conflict (stop_id) do nothing returning stop_id`,
+      [stopId, userId, v.vehicle_type_id, instanceId, v.max_hp, v.attack],
     )
     if (!ins.rowCount) {
       await pool.query(
-        'update user_vehicles set deployed_stop_id = null where user_id = $1 and vehicle_type_id = $2',
-        [userId, vehicleId],
+        'update user_vehicles set deployed_stop_id = null where user_id = $1 and id = $2',
+        [userId, instanceId],
       )
       return res.status(409).json({ error: 'Tento gym už někdo obsadil.' })
     }
@@ -525,10 +665,7 @@ meRouter.post(
       return res.status(409).json({ error: 'Tento gym nebráníš.' })
     }
     await finalizeHolding(userId, g.held_since)
-    await pool.query(
-      'update user_vehicles set deployed_stop_id = null, hp = max_hp where user_id = $1 and vehicle_type_id = $2',
-      [userId, g.vehicle_type_id],
-    )
+    await freeDefender(g)
     await pool.query('delete from gym_state where stop_id = $1', [stopId])
     res.json({ holder: null, defender: null, heldSince: null, isMine: false })
   }),
@@ -541,21 +678,24 @@ meRouter.post(
   asyncHandler(async (req: AuthedRequest, res) => {
     const userId = req.userId!
     const stopId = req.params.stopId
-    const vehicleId = String(req.body?.vehicleId ?? '')
+    const instanceId = String(req.body?.vehicleId ?? '')
 
     const g = await gymRow(stopId)
     if (!g) return res.status(409).json({ error: 'Tento gym nikdo nebrání — můžeš ho obsadit.' })
     if (g.holder_user_id === userId) return res.status(409).json({ error: 'Tento gym už bráníš ty.' })
 
-    const v = await idleVehicle(userId, vehicleId)
-    if (!v) return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
-    if (v.deployed_stop_id) return res.status(409).json({ error: 'Vozidlo brání jiný gym.' })
+    const { v, reason } = await readyVehicle(userId, instanceId)
+    if (!v) {
+      if (reason === 'deployed') return res.status(409).json({ error: 'Vozidlo brání jiný gym.' })
+      if (reason === 'resting') return res.status(409).json({ error: 'Vozidlo je vyčerpané. Počkej, až se zotaví.' })
+      return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
+    }
 
     const hp = await applyRegen(g)
     const { rows } = await pool.query<{ id: string }>(
-      `insert into gym_battles (stop_id, attacker_user_id, vehicle_type_id, attacker_attack, defender_hp_at_start)
-       values ($1, $2, $3, $4, $5) returning id`,
-      [stopId, userId, vehicleId, v.attack, hp],
+      `insert into gym_battles (stop_id, attacker_user_id, vehicle_type_id, vehicle_id, attacker_attack, defender_hp_at_start)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [stopId, userId, v.vehicle_type_id, instanceId, v.attack, hp],
     )
     res.json({
       battleId: String(rows[0].id),
@@ -580,11 +720,12 @@ meRouter.post(
     const battleRes = await pool.query<{
       stop_id: string
       vehicle_type_id: string
+      vehicle_id: string | null
       attacker_attack: number
       started_at: string
       resolved_at: string | null
     }>(
-      'select stop_id, vehicle_type_id, attacker_attack, started_at, resolved_at from gym_battles where id = $1 and attacker_user_id = $2',
+      'select stop_id, vehicle_type_id, vehicle_id, attacker_attack, started_at, resolved_at from gym_battles where id = $1 and attacker_user_id = $2',
       [battleId, userId],
     )
     if (!battleRes.rowCount) return res.status(404).json({ error: 'Bitva nenalezena.' })
@@ -614,40 +755,43 @@ meRouter.post(
     const currentHp = await applyRegen(g)
 
     if (damage < currentHp) {
-      // Defender survives — drain its motivation (HP), persist.
+      // Defender survives — drain its motivation (HP), persist. The attacking
+      // vehicle is spent: it drops to 0 HP and must heal back before reuse.
       const left = Math.max(1, currentHp - damage)
       await pool.query('update gym_state set defender_hp = $1, last_regen_at = now() where stop_id = $2', [
         left,
         b.stop_id,
       ])
+      if (b.vehicle_id) {
+        await pool.query('update user_vehicles set hp = 0, hp_updated_at = now() where id = $1', [b.vehicle_id])
+      }
       await markResolved(false)
       const user = (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
       return res.json({ won: false, awardedXp: 0, defenderHp: left, user: publicUser(user) })
     }
 
     // Win: bank the old holder's time, return their (healed) vehicle, and take the
-    // gym with the attacking vehicle at full HP.
+    // gym with the attacking instance at full HP.
     await finalizeHolding(g.holder_user_id, g.held_since)
-    await pool.query(
-      'update user_vehicles set deployed_stop_id = null, hp = max_hp where user_id = $1 and vehicle_type_id = $2',
-      [g.holder_user_id, g.vehicle_type_id],
-    )
+    await freeDefender(g)
     await pool.query('delete from gym_state where stop_id = $1', [b.stop_id])
 
-    // Deploy the attacker's vehicle (claim it; if it's busy, the gym just stays open).
-    const claim = await pool.query<{ max_hp: number; attack: number }>(
-      'update user_vehicles set deployed_stop_id = $1, hp = max_hp where user_id = $2 and vehicle_type_id = $3 and deployed_stop_id is null returning max_hp, attack',
-      [b.stop_id, userId, b.vehicle_type_id],
-    )
+    // Deploy the attacker's instance (claim it; if it's busy, the gym just stays open).
     let newDefenderHp: number | null = null
-    if (claim.rowCount) {
-      const nv = claim.rows[0]
-      await pool.query(
-        `insert into gym_state (stop_id, holder_user_id, vehicle_type_id, defender_hp, defender_max_hp, defender_attack)
-         values ($1, $2, $3, $4, $4, $5) on conflict (stop_id) do nothing`,
-        [b.stop_id, userId, b.vehicle_type_id, nv.max_hp, nv.attack],
+    if (b.vehicle_id) {
+      const claim = await pool.query<{ max_hp: number; attack: number }>(
+        'update user_vehicles set deployed_stop_id = $1, hp = max_hp, hp_updated_at = now() where user_id = $2 and id = $3 and deployed_stop_id is null returning max_hp, attack',
+        [b.stop_id, userId, b.vehicle_id],
       )
-      newDefenderHp = nv.max_hp
+      if (claim.rowCount) {
+        const nv = claim.rows[0]
+        await pool.query(
+          `insert into gym_state (stop_id, holder_user_id, vehicle_type_id, vehicle_id, defender_hp, defender_max_hp, defender_attack)
+           values ($1, $2, $3, $4, $5, $5, $6) on conflict (stop_id) do nothing`,
+          [b.stop_id, userId, b.vehicle_type_id, b.vehicle_id, nv.max_hp, nv.attack],
+        )
+        newDefenderHp = nv.max_hp
+      }
     }
 
     await markResolved(true)

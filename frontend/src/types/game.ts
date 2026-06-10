@@ -126,25 +126,50 @@ export interface ApiStop {
   isGym: boolean;
 }
 
-/** Combat stats for a caught vehicle (rolled on catch, from GET /me/progress). */
-export interface VehicleStats {
+/** One caught physical vehicle (instance), identified by its serial number.
+ *  A player can own several of the same model with different serials. */
+export interface CollectedVehicle {
+  id: string;
+  /** The catalog model this instance is an example of. */
+  vehicleTypeId: string;
+  /** Evidenční číslo (registration number), or null if it wasn't legible. */
+  fleetNumber: string | null;
   /** The catch's rolled rarity (per instance), biased by the model's base rarity. */
   rarity: Rarity;
-  /** Current HP — full unless the vehicle is defending a gym and took damage. */
+  /** Current HP — heals to maxHp over time when idle; drops to 0 after a lost battle. */
   hp: number;
   maxHp: number;
   attack: number;
   /** Stop id of the gym this vehicle is defending, or null if idle. */
   deployedStopId: string | null;
+  /** The player's catch photo (absolute URL), or null. */
+  imageUrl: string | null;
+  /** ISO timestamp of the catch (for newest-first ordering). */
+  foundAt: string;
 }
 
-/** What a catch rolled, surfaced on the capture reward screen. */
-export interface CaughtReveal {
+/** A freshly rolled candidate / an existing instance, for the duplicate-serial choice. */
+export interface CatchRoll {
+  fleetNumber: string | null;
   rarity: Rarity;
   hp: number;
   maxHp: number;
   attack: number;
+  imageUrl: string | null;
 }
+
+/** Outcome of POST /me/vehicles: a real catch, or a same-serial re-roll to choose. */
+export type CatchOutcome =
+  | {
+      status: 'new';
+      awardedXp: number;
+      instanceId: string;
+      fleetNumber: string | null;
+      rarity: Rarity;
+      imageUrl: string | null;
+      stats: { hp: number; maxHp: number; attack: number };
+    }
+  | { status: 'duplicate'; existing: CatchRoll & { id: string }; candidate: CatchRoll };
 
 /** A gym's defender + holder (from GET /me/gyms/:stopId). */
 export interface GymState {
@@ -153,6 +178,8 @@ export interface GymState {
     model: string;
     shortName: string;
     rarity: Rarity;
+    /** The holder's catch photo of the defending vehicle (absolute URL), or null. */
+    imageUrl: string | null;
     hp: number;
     maxHp: number;
     attack: number;

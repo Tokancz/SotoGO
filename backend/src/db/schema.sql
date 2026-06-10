@@ -80,18 +80,49 @@ CREATE TABLE IF NOT EXISTS route_geometries (
 );
 
 -- ── Player progress ──────────────────────────────────────────────────────────
--- Which catalog models a player has collected, and which stops they've visited.
--- The composite PKs make catches/visits idempotent (collect/visit once).
+-- Which vehicles a player has caught, and which stops they've visited.
+-- A catch is now PER PHYSICAL VEHICLE (one row per caught serial / evidenční
+-- číslo), so a player can own several vehicles of the same model. The surrogate
+-- `id` is the instance handle used by deploy/delete/battle. Older databases were
+-- keyed by (user_id, vehicle_type_id) — the migration block below upgrades them.
 CREATE TABLE IF NOT EXISTS user_vehicles (
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   vehicle_type_id BIGINT NOT NULL REFERENCES vehicle_types(id) ON DELETE CASCADE,
+  -- The painted registration number identifying the physical vehicle. NULL when
+  -- it wasn't legible (or for legacy rows caught before serials were tracked).
+  fleet_number    TEXT,
   found_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- The player's own photo of the catch (served from /uploads). NULL if none.
-  image_url       TEXT,
-  PRIMARY KEY (user_id, vehicle_type_id)
+  image_url       TEXT
 );
 -- Backfill the column on databases created before photos existed.
 ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS fleet_number TEXT;
+
+-- Upgrade pre-instance databases: the table used to be keyed by
+-- (user_id, vehicle_type_id) with no surrogate id. Add `id` as a fresh identity
+-- PK and drop the old composite PK. Guarded so it only runs once and only on the
+-- legacy shape (CREATE TABLE above already produces the new shape on fresh DBs).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'user_vehicles' AND column_name = 'id'
+  ) THEN
+    ALTER TABLE user_vehicles DROP CONSTRAINT IF EXISTS user_vehicles_pkey;
+    ALTER TABLE user_vehicles ADD COLUMN id BIGINT GENERATED ALWAYS AS IDENTITY;
+    ALTER TABLE user_vehicles ADD PRIMARY KEY (id);
+  END IF;
+END $$;
+
+-- One row per (player, model, serial): catching the SAME serial again is a
+-- re-roll choice, not a second row. NULL serials are exempt (each unreadable
+-- catch is its own instance), which a partial unique index allows.
+CREATE UNIQUE INDEX IF NOT EXISTS user_vehicles_serial_uq
+  ON user_vehicles (user_id, vehicle_type_id, fleet_number)
+  WHERE fleet_number IS NOT NULL;
+CREATE INDEX IF NOT EXISTS user_vehicles_user_idx ON user_vehicles (user_id);
 
 -- Combat stats for gym battles: rolled ONCE on first catch from the model's
 -- rarity (see src/lib/combat.ts). `hp` is current HP (heals to `max_hp` when the
@@ -101,6 +132,10 @@ ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS max_hp INT;
 ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS hp     INT;
 ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS attack INT;
 ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS deployed_stop_id BIGINT REFERENCES stops(id) ON DELETE SET NULL;
+-- Regen clock for IDLE vehicles: a vehicle drained to 0 HP by losing a gym
+-- battle heals back over time from this timestamp (see regenHp in lib/combat.ts).
+-- A vehicle must be at full HP before it can deploy or attack again.
+ALTER TABLE user_vehicles ADD COLUMN IF NOT EXISTS hp_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 -- The catch's ROLLED rarity (per instance), biased by the model's base rarity at
 -- catch time (see rollRarity in src/lib/combat.ts). vehicle_types.rarity remains
 -- the model's base tier / roll bias.
@@ -126,15 +161,17 @@ FROM (
          lo_at + floor(random() * (hi_at - lo_at + 1))::int  AS attack
   FROM user_vehicles uv2
   JOIN vehicle_types vt ON vt.id = uv2.vehicle_type_id
+  -- Keep these in sync with RARITY_BANDS in src/lib/combat.ts (tankier defenders,
+  -- softer attack — gym battles should take several rounds, not one).
   CROSS JOIN LATERAL (
     SELECT CASE vt.rarity
-             WHEN 'legendary' THEN 160 WHEN 'epic' THEN 120 WHEN 'rare' THEN 90 ELSE 60 END AS lo_hp,
+             WHEN 'legendary' THEN 320 WHEN 'epic' THEN 240 WHEN 'rare' THEN 180 ELSE 120 END AS lo_hp,
            CASE vt.rarity
-             WHEN 'legendary' THEN 220 WHEN 'epic' THEN 170 WHEN 'rare' THEN 130 ELSE 90 END AS hi_hp,
+             WHEN 'legendary' THEN 440 WHEN 'epic' THEN 340 WHEN 'rare' THEN 260 ELSE 180 END AS hi_hp,
            CASE vt.rarity
-             WHEN 'legendary' THEN 34 WHEN 'epic' THEN 26 WHEN 'rare' THEN 18 ELSE 12 END AS lo_at,
+             WHEN 'legendary' THEN 24 WHEN 'epic' THEN 18 WHEN 'rare' THEN 13 ELSE 9 END AS lo_at,
            CASE vt.rarity
-             WHEN 'legendary' THEN 50 WHEN 'epic' THEN 38 WHEN 'rare' THEN 28 ELSE 20 END AS hi_at
+             WHEN 'legendary' THEN 34 WHEN 'epic' THEN 26 WHEN 'rare' THEN 19 ELSE 13 END AS hi_at
   ) bands
   WHERE uv2.max_hp IS NULL
 ) roll
@@ -189,6 +226,10 @@ CREATE TABLE IF NOT EXISTS gym_state (
   last_regen_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS gym_state_holder_idx ON gym_state (holder_user_id);
+-- The exact caught instance defending here — used to read its rolled rarity +
+-- catch photo (multiple instances of a model would be ambiguous via type alone).
+-- NULL only for legacy rows deployed before instances existed.
+ALTER TABLE gym_state ADD COLUMN IF NOT EXISTS vehicle_id BIGINT REFERENCES user_vehicles(id) ON DELETE SET NULL;
 
 -- A battle session. The server stamps `started_at` so elapsed time (and thus the
 -- max number of taps an attacker could land) is derived authoritatively, not
@@ -205,3 +246,22 @@ CREATE TABLE IF NOT EXISTS gym_battles (
   won                  BOOLEAN
 );
 CREATE INDEX IF NOT EXISTS gym_battles_attacker_idx ON gym_battles (attacker_user_id);
+-- The attacking instance — so a loss can drain that exact vehicle to 0 HP.
+ALTER TABLE gym_battles ADD COLUMN IF NOT EXISTS vehicle_id BIGINT REFERENCES user_vehicles(id) ON DELETE SET NULL;
+
+-- ── Pending duplicate-serial catches ─────────────────────────────────────────
+-- When a player catches a serial they already own, we roll a NEW candidate but
+-- don't overwrite the existing instance until they choose which to keep. The
+-- candidate (and its photo) is parked here, keyed by (player, model, serial), so
+-- the choice stays server-authoritative. Resolved via POST /me/vehicles/keep.
+CREATE TABLE IF NOT EXISTS pending_catches (
+  user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vehicle_type_id BIGINT NOT NULL REFERENCES vehicle_types(id) ON DELETE CASCADE,
+  fleet_number    TEXT NOT NULL,
+  rarity          TEXT NOT NULL,
+  max_hp          INT NOT NULL,
+  attack          INT NOT NULL,
+  image_url       TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, vehicle_type_id, fleet_number)
+);
