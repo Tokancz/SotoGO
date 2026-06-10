@@ -8,6 +8,7 @@ import { catalogApi } from '@/services/catalog'
 import { gymsApi } from '@/services/gyms'
 import { useGeolocation } from '@/composables/useGeolocation'
 import { useToastStore } from '@/stores/toast'
+import { fx, haptic } from '@/lib/feedback'
 import type { ApiStop, BattleResult, CatalogVehicle, CollectedVehicle, GymState } from '@/types/game'
 import SgBadge from '@/components/ui/SgBadge.vue'
 import SgIcon from '@/components/SgIcon.vue'
@@ -231,7 +232,12 @@ function addMarker(stop: ApiStop): L.Marker {
   })
   const marker = L.marker([stop.lat, stop.lng], { icon })
   if (stopLayer) marker.addTo(stopLayer)
-  marker.on('click', () => selectStop(stop))
+  // Pins are Leaflet divIcons (not <button>s), so the global UI click sound
+  // doesn't reach them — tick here instead.
+  marker.on('click', () => {
+    fx.click()
+    selectStop(stop)
+  })
   markersById[stop.id] = marker
   return marker
 }
@@ -368,11 +374,11 @@ async function loadAround(loc: { lat: number; lng: number }) {
       // Lock panning to the loaded area so the user can't drift into empty space.
       map.value.setMaxBounds(boundsAround(loc, LOAD_KM))
       syncStops()
-      selected.value =
-        [...game.stops].sort(
-          (a, b) =>
-            haversine(loc.lat, loc.lng, a.lat, a.lng) - haversine(loc.lat, loc.lng, b.lat, b.lng),
-        )[0] ?? null
+      // The detail sheet opens only on an explicit tap — but if the previously
+      // selected stop dropped out of the loaded set, clear the stale sheet.
+      if (selected.value && !game.stops.some((s) => s.id === selected.value!.id)) {
+        selected.value = null
+      }
     } catch {
       /* torn down mid-apply — ignore */
     }
@@ -439,9 +445,12 @@ onMounted(() => {
   m.on('dragstart', () => {
     following = false
   })
-  // Dev teleport: clicking the map jumps the player there (admin tool only).
+  // Tapping the map: in dev-teleport mode it jumps the player there; otherwise it
+  // dismisses an open stop/gym sheet (marker taps don't reach here, so selecting a
+  // pin still works).
   m.on('click', (e: L.LeafletMouseEvent) => {
     if (devTeleport.value) teleport(e.latlng.lat, e.latlng.lng)
+    else selected.value = null
   })
   // Track zoom animations so we don't churn markers while one is running.
   m.on('zoomstart', () => {
@@ -516,6 +525,8 @@ async function visitSelected() {
   if (awarded != null) {
     now.value = Date.now() // the stop is now on cooldown
     applyState(stop)
+    fx.visit()
+    haptic.success()
   }
 }
 

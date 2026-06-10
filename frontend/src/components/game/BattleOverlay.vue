@@ -6,6 +6,7 @@
 // server's `maxTapsPerSec` so the local HP bar matches what the server will credit.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
+import { fx, haptic } from '@/lib/feedback'
 import type { BattleResult, Rarity } from '@/types/game'
 import SgIcon from '@/components/SgIcon.vue'
 import SgProgressBar from '@/components/ui/SgProgressBar.vue'
@@ -94,6 +95,7 @@ function tap() {
   lastTapAt = now
   hits.value += 1
   hp.value = Math.max(0, hp.value - attack.value)
+  fx.tap()
   if (!reduceMotion) {
     const id = ++floaterId
     floaters.value.push({ id, x: 32 + Math.random() * 36 })
@@ -112,6 +114,13 @@ async function finish() {
     const res = await game.resolveBattle(battleId, hits.value)
     result.value = res
     phase.value = 'done'
+    if (res.won) {
+      fx.victory()
+      haptic.win()
+    } else {
+      fx.defeat()
+      haptic.error()
+    }
     emit('finished', res)
   } catch (err) {
     phase.value = 'error'
@@ -173,6 +182,7 @@ async function finish() {
       <button
         v-else
         class="battle__tap"
+        data-noclick
         :class="{ 'battle__tap--photo': defenderImage }"
         :style="{ '--def-rarity': rarityColor }"
         :disabled="phase !== 'fighting'"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGameStore } from '@/stores/game'
+import { fx, haptic } from '@/lib/feedback'
 import TopBar from '@/components/layout/TopBar.vue'
 import SgChallengeCard from '@/components/game/SgChallengeCard.vue'
 import SgAchievementBadge from '@/components/game/SgAchievementBadge.vue'
@@ -29,6 +30,8 @@ async function onClaim(id: string) {
   claimingId.value = id
   try {
     await game.claimQuest(id)
+    fx.reward()
+    haptic.success()
   } catch (err) {
     console.error('Vyzvednutí odměny selhalo:', err)
   } finally {

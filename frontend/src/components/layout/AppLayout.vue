@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/game'
 import { useToastStore } from '@/stores/toast'
+import { useSettingsStore } from '@/stores/settings'
+import { fx, haptic } from '@/lib/feedback'
+import { music } from '@/lib/music'
 import SgBottomNav, { type NavItem } from '@/components/game/SgBottomNav.vue'
 import SgToastHost from '@/components/ui/SgToastHost.vue'
+import LevelUpOverlay from '@/components/game/LevelUpOverlay.vue'
 
 // Loaded on demand when the camera opens — keeps Tesseract.js (OCR) and the
 // capture UI out of the initial bundle.
@@ -14,8 +18,58 @@ const route = useRoute()
 const router = useRouter()
 const game = useGameStore()
 const toasts = useToastStore()
+const settings = useSettingsStore()
 
 const captureOpen = ref(false)
+
+// Level-up celebration: watch the (XP-derived) player level and fire the overlay
+// + jingle when it climbs. The first observed value just seeds the baseline so
+// loading the saved level doesn't trigger a false celebration.
+const levelUpTo = ref<number | null>(null)
+let prevLevel: number | null = null
+watch(
+  () => game.player.level,
+  (lvl) => {
+    if (prevLevel === null) {
+      prevLevel = lvl
+      return
+    }
+    if (lvl > prevLevel) {
+      levelUpTo.value = lvl
+      fx.levelUp()
+      haptic.win()
+    }
+    prevLevel = lvl
+  },
+  { immediate: true },
+)
+
+// Background music follows the setting. Toggling it on (a user gesture) starts it
+// immediately; if it was already enabled from a previous session, the first tap
+// anywhere kicks it off (browsers require a gesture to begin audio).
+watch(
+  () => settings.music,
+  (on) => (on ? music.start() : music.stop()),
+)
+
+// One global UI click sound for every button/tab/link/toggle — far simpler than
+// wiring each component. Capture phase so it still fires if a handler stops
+// propagation; `data-noclick` opts an element out (e.g. the battle tap target,
+// which has its own sound).
+function onUiPointerDown(e: PointerEvent) {
+  const start = e.target as HTMLElement | null
+  const el = start?.closest<HTMLElement>(
+    'button, a[href], [role="tab"], [role="button"], label.sg-switch',
+  )
+  if (!el) return
+  if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') return
+  if (el.closest('[data-noclick]')) return
+  const sw = el.matches('label.sg-switch')
+    ? el.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    : null
+  if (sw) fx.toggle(!sw.checked)
+  else fx.click()
+}
 
 // Toast newly-unlocked achievements. The baseline is seeded explicitly once
 // progress has loaded (see onMounted), so existing unlocks don't toast — only
@@ -85,6 +139,22 @@ onMounted(async () => {
   // achievements count against) are in — so we don't announce pre-existing ones.
   await Promise.all([game.loadProgress(), game.ensureCatalog()])
   seenUnlocked.value = new Set(game.achievements.filter((a) => a.unlocked).map((a) => a.title))
+
+  // Resume music on the first user gesture if it was left enabled.
+  if (settings.music) {
+    const kick = () => {
+      music.start()
+      window.removeEventListener('pointerdown', kick)
+    }
+    window.addEventListener('pointerdown', kick, { once: true })
+  }
+})
+
+window.addEventListener('pointerdown', onUiPointerDown, { capture: true })
+
+onBeforeUnmount(() => {
+  music.stop()
+  window.removeEventListener('pointerdown', onUiPointerDown, { capture: true })
 })
 </script>
 
@@ -101,6 +171,8 @@ onMounted(async () => {
     <SgBottomNav :items="items" :active="active" @select="onNav" />
 
     <CaptureSheet v-if="captureOpen" @close="captureOpen = false" @caught="onCaught" />
+
+    <LevelUpOverlay v-if="levelUpTo !== null" :level="levelUpTo" @close="levelUpTo = null" />
 
     <SgToastHost />
   </div>

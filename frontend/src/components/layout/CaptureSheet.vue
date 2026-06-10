@@ -7,6 +7,7 @@ import { downscaleCanvas, downscaleImageFile } from '@/lib/image'
 import { resolveFleetNumber } from '@/data/fleet'
 import { recognizeApi, type RecognizeResult } from '@/services/recognize'
 import { useCountUp } from '@/composables/useCountUp'
+import { fx, haptic } from '@/lib/feedback'
 import type { CatalogVehicle, CatchRoll, CategoryKey, Rarity } from '@/types/game'
 import SgButton from '@/components/ui/SgButton.vue'
 import SgIcon from '@/components/SgIcon.vue'
@@ -205,6 +206,8 @@ async function doCatch() {
         attack: res.stats.attack,
       }
       phase.value = 'result'
+      fx.catch(res.rarity)
+      haptic.success()
     } else {
       dup.value = { existing: res.existing, candidate: res.candidate }
       phase.value = 'duplicate'
