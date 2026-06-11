@@ -62,6 +62,11 @@ function metricValue(e: LeaderboardEntry): string {
   return `${e.xp.toLocaleString('cs-CZ')} XP`
 }
 
+/** Icon shown next to each row's value, matching the active metric. */
+const metricIcon = computed(
+  () => ({ xp: 'star', battles: 'zap', time: 'award' } as const)[metric.value],
+)
+
 const isMe = (e: LeaderboardEntry) => e.id === data.value?.me.id
 const rankClass = (rank: number) =>
   rank <= 3 ? `row__rank--${({ 1: 'gold', 2: 'silver', 3: 'bronze' } as const)[rank as 1 | 2 | 3]}` : ''
@@ -94,7 +99,7 @@ const rankClass = (rank: number) =>
               <span class="row__name">{{ e.username }}<span v-if="isMe(e)" class="row__you">Ty</span></span>
               <span class="row__lvl">Level {{ e.level }}</span>
             </span>
-            <span class="row__xp">{{ metricValue(e) }}</span>
+            <span class="row__xp"><SgIcon :name="metricIcon" :size="15" class="row__xpicon" />{{ metricValue(e) }}</span>
           </li>
         </ul>
 
@@ -109,7 +114,7 @@ const rankClass = (rank: number) =>
                 <span class="row__name">{{ data.me.username }}<span class="row__you">Ty</span></span>
                 <span class="row__lvl">Level {{ data.me.level }}</span>
               </span>
-              <span class="row__xp">{{ metricValue(data.me) }}</span>
+              <span class="row__xp"><SgIcon :name="metricIcon" :size="15" class="row__xpicon" />{{ metricValue(data.me) }}</span>
             </li>
           </ul>
         </div>
@@ -181,11 +186,15 @@ const rankClass = (rank: number) =>
 .row__lvl { font-size: 12px; color: var(--text-muted); }
 .row__xp {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--font-mono);
   font-weight: var(--fw-bold);
   font-size: 14px;
   color: var(--gold-700);
 }
+.row__xpicon { flex: none; }
 
 .pinned { margin-top: 18px; }
 .pinned__label {

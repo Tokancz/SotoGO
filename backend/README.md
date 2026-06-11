@@ -1,17 +1,20 @@
 # ŠotoGO — Backend
 
-Express + PostgreSQL REST API. Current slice: **authentication** (email/password
-+ Google sign-in + JWT). Game endpoints come later (see [../docs/BACKEND.md](../docs/BACKEND.md)).
+Express + PostgreSQL REST API, server-authoritative for all game logic
+(auth + Google sign-in, recognition, collection, stops, daily quests, gyms,
+leaderboard, streaks). Deployed on Fly.io. Full endpoint + env reference:
+[../docs/BACKEND.md](../docs/BACKEND.md).
 
-## Endpoints
+## Endpoints (overview)
 
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| GET  | `/api/health`        | – | Liveness check |
-| POST | `/api/auth/register` | – | Create account → `{ token, user }` |
-| POST | `/api/auth/login`    | – | Email/password login → `{ token, user }` |
-| POST | `/api/auth/google`   | – | Verify Google ID token → `{ token, user }` |
-| GET  | `/api/auth/me`       | JWT | Current player |
+| Group | Examples |
+|---|---|
+| Auth (`/api/auth`) | `register`, `login`, `google`, `me` |
+| Catalog (`/api`) | `GET /vehicles`, `GET /stops`, `GET /stops/:id/routes` |
+| Recognition | `POST /api/recognize` (Claude vision), `POST /api/report` |
+| Player (`/api/me`, JWT) | `progress`, `vehicles`, `stops/:id/visit`, `quests`, `gyms/*`, `leaderboard`, `checkin`, `avatar` |
+
+See [../docs/BACKEND.md](../docs/BACKEND.md) for the full table.
 
 ---
 
@@ -49,7 +52,9 @@ Edit `.env`:
 
 ```bash
 npm install
-npm run migrate    # creates the `users` table
+npm run migrate         # applies the full schema (idempotent)
+npm run seed:vehicles   # seeds the vehicle catalog
+npm run import:stops     # imports PID GTFS stops (see docs/BACKEND.md caveat)
 ```
 
 ## 5. Run

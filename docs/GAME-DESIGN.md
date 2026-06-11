@@ -3,14 +3,14 @@
 ŠotoGO mění spotting veřejné dopravy ve sběratelskou hru. Hlavní smyčka:
 
 ```
-spatříš vozidlo  →  vyfotíš ho  →  OCR přečte evid. číslo  →  ověření v DB
-      ↓                                                          ↓
+spatříš vozidlo  →  vyfotíš ho  →  rozpoznání čte evid. číslo  →  ověření v DB
+      ↓                                                            ↓
  navštěvuj zastávky  ←  získej XP / level up  ←  přidání do parku  ←  nový objev?
       ↓
- plň denní výzvy a achievementy
+ plň denní výzvy, bojuj o gymy, šplhej v žebříčku, drž si sérii
 ```
 
-Herní cíle pro hráče: **objevovat nová vozidla**, **kompletovat vozové série**, **navštěvovat zastávky**, **plnit denní výzvy** a **získávat XP a odznaky**.
+Herní cíle pro hráče: **objevovat nová vozidla**, **kompletovat vozové série**, **navštěvovat zastávky**, **plnit denní výzvy**, **ovládat gymy**, **šplhat v žebříčku** a **získávat XP a odznaky**.
 
 ---
 
@@ -18,15 +18,17 @@ Herní cíle pro hráče: **objevovat nová vozidla**, **kompletovat vozové sé
 
 Stěžejní mechanika. Hráč vyfotí vozidlo a systém:
 
-1. z fotografie přečte **evidenční číslo** pomocí OCR,
-2. ověří existenci vozidla v databázi,
-3. přiřadí vozidlo k hráčovu účtu.
+1. z fotografie přečte **evidenční číslo** a rozpozná **model** — fotka jde na server, kde ji zpracuje **Claude vision** (forced tool call s `shortName` jako enumem živého katalogu, takže nelze vrátit neexistující model). Když rozpoznávání není nakonfigurované, hráč vybere model ručně. Detail viz [ARCHITECTURE.md](ARCHITECTURE.md).
+2. ověří existenci modelu v katalogu,
+3. přiřadí vozidlo k hráčovu účtu jako **fyzický kus** (jeden záznam na evidenční číslo — hráč může vlastnit víc kusů stejného modelu), vylosuje jeho **vzácnost** a **bojové statistiky**.
 
-Pokud vozidlo **ještě není** ve sbírce hráče:
+Pokud daný kus **ještě není** ve sbírce hráče:
 
 ```
 Nový objev!   (+100 XP)
 ```
+
+Chytí-li hráč evidenční číslo, které už vlastní, vylosuje se nový kandidát a hráč rozhodne, který kus si nechá (server-autoritativní, viz `pending_catches` v [DATA-MODEL.md](DATA-MODEL.md)).
 
 Proces zachycení má tři fáze (viz design `CaptureSheet`): **Zaměření** (hledáček + rámeček) → **Skenování** (animovaná čára, „Čtu evidenční číslo…") → **Odměna** („Nový objev!", ikona kategorie, typ/číslo, např. `15T #9325`, dopravce, `+100 XP`, „Přidat do parku").
 
@@ -81,22 +83,33 @@ Každá výzva má název, progress (hodnota / max) a odměnu v XP. Denní banne
 
 ---
 
-## 5. Achievementy
+## 5. Gymy
 
-Dlouhodobé cíle, odstupňované bronz / stříbro / zlato, se stavem zamčeno/odemčeno a progressem. Příklady:
+Vybrané významné stanice (metro + velké přestupy, příznak `is_gym`) jsou **gymy** — soutěží se o ně systémem **king-of-the-hill**:
 
-- **Lovec tramvají** — Najdi 50 tramvají
-- **Metro expert** — Najdi všechny typy souprav metra
-- **Šotouš roku** — Navštiv 500 zastávek
+- Hráč na gym **nasadí** jeden ze svých kusů jako obránce (jeho HP/Attack vychází z vzácnosti, viz [`combat.ts`](../backend/src/lib/combat.ts)).
+- Útočník vede **časovaný tap battle**; server stampuje začátek, takže počet zásahů je odvozen autoritativně, ne věřen klientovi.
+- **Výdrž obránce klesá v čase** (jako motivace v Pokémon GO): z plné výdrže k 0 za ~4 dny (`GYM_DECAY_DAYS`), pak je obránce automaticky vyhozen a gym se otevře. Útoky výdrž ubírají navíc, takže o sporný gym se přijde rychleji. Poražené/vyhozené vozidlo se vrací domů uzdravené.
+- Porazí-li útočník obránce, gym přebírá; **poraženému majiteli přijde push notifikace**, že o gym přišel.
+- Držení gymu se počítá do statistik (`battles_won`, `gym_seconds`) a žebříčku.
 
----
+## 6. Žebříček
 
-## 6. XP a levely
+Hráči soupeří v **žebříčku** podle XP a gym metrik (počet ovládnutých gymů a celkový čas držení). Obrazovka `Žebříček` (`ZebricekView`).
 
-- Sebrání vozidla dá XP (**+100** v prototypu).
+## 7. Achievementy
+
+Dlouhodobé cíle, odstupňované bronz / stříbro / zlato, se stavem zamčeno/odemčeno a progressem. Příklady: **Sběratel** (ulov 10 vozidel), **Metro expert** (celé metro), **Neúnavný šotouš** (hraj 30 dní v řadě).
+
+Achievementy jsou **server-autoritativní**: progress se počítá živě z herních dat (chycené kusy, navštívené zastávky, série, dokončení katalogu), odemčení se persistuje natrvalo (`user_achievements`) a každé poprvé udělí **jednorázovou XP odměnu** podle tieru. Definice viz [`achievements.ts`](../backend/src/lib/achievements.ts).
+
+## 8. XP, levely a série
+
+- Sebrání vozidla dá XP (**+100** za nový objev).
 - Návštěva zastávky dá XP při první návštěvě.
-- Splnění denních výzev a achievementů dá XP.
-- **Level se odvozuje z kumulativního XP** (např. HUD ukazuje `LEVEL 12 / 2480 / 3000 XP`).
+- Splnění denních výzev dá XP po vyzvednutí.
+- **Level se odvozuje z kumulativního XP** (HUD ukazuje např. `LEVEL 12 / 2480 / 3000 XP`); výpočet je server-autoritativní ([`leveling.ts`](../backend/src/lib/leveling.ts)).
+- **Denní série (streak):** check-in zvyšuje `streak_count`, dokud hráč nevynechá den.
 
 ---
 

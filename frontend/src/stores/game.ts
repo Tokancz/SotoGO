@@ -46,6 +46,8 @@ interface State {
   quests: Quest[]
   /** When the current quest period ends (ISO), for the countdown. */
   questsEndsAt: string | null
+  /** Achievements with live progress (from the server). */
+  achievements: Achievement[]
   catalogLoaded: boolean
 }
 
@@ -59,6 +61,7 @@ export const useGameStore = defineStore('game', {
     visitedAt: {},
     quests: [],
     questsEndsAt: null,
+    achievements: [],
     catalogLoaded: false,
   }),
 
@@ -147,54 +150,9 @@ export const useGameStore = defineStore('game', {
     dailyXpAvailable: (s) =>
       s.quests.filter((q) => !q.claimed).reduce((sum, q) => sum + q.reward, 0),
 
-    /** Achievements computed live from real progress (collection + visits). */
-    achievements(): Achievement[] {
-      // Count-based badges reward total vehicles caught (every instance); the
-      // completion badges below stay per distinct model.
-      const caught = this.totalInstances
-      const models = this.totalFound
-      const visited = this.visitedIds.length
-      const streak = this.player.streak
-      const byCat = this.countByCategory
-      const catTotal = this.catalogCountByCategory
-      const mk = (
-        title: string,
-        desc: string,
-        icon: string,
-        tier: Achievement['tier'],
-        color: string,
-        value: number,
-        max: number,
-      ): Achievement => ({
-        title,
-        desc,
-        icon,
-        tier,
-        color,
-        value,
-        max,
-        unlocked: max > 0 && value >= max,
-      })
-
-      const C = this.cats
-      return [
-        mk('První úlovek', 'Vyfoť 1. vozidlo', 'sparkles', 'common', 'var(--xp)', caught, 1),
-        mk('Sběratel', 'Ulov 10 vozidel', 'layers', 'rare', 'var(--rarity-rare)', caught, 10),
-        mk('Mistr sbírky', 'Ulov 25 vozidel', 'crown', 'epic', 'var(--rarity-epic)', caught, 25),
-        mk('Lovec tramvají', 'Všechny tramvaje', 'tram-front', 'epic', C.tram.color, byCat.tram, catTotal.tram),
-        mk('Pán autobusů', 'Všechny autobusy', 'bus', 'rare', C.bus.color, byCat.bus, catTotal.bus),
-        mk('Metro expert', 'Celé metro', 'train-front-tunnel', 'epic', C.metro.color, byCat.metro, catTotal.metro),
-        mk('Cestovatel', 'Navštiv 5 zastávek', 'map-pin', 'common', 'var(--brand)', visited, 5),
-        mk('Šotouš na cestách', 'Navštiv 50 zastávek', 'route', 'rare', C.trolley.color, visited, 50),
-        mk('Ve formě', 'Hraj 3 dny v řadě', 'flame', 'common', 'var(--xp)', streak, 3),
-        mk('Týden v kuse', 'Hraj 7 dní v řadě', 'flame', 'rare', 'var(--rarity-rare)', streak, 7),
-        mk('Neúnavný šotouš', 'Hraj 30 dní v řadě', 'flame', 'legendary', 'var(--rarity-legendary)', streak, 30),
-        mk('Kompletista', 'Dokonči celou sbírku', 'award', 'legendary', 'var(--rarity-legendary)', models, this.totalAll),
-      ]
-    },
-
-    unlockedAchievements(): number {
-      return this.achievements.filter((a) => a.unlocked).length
+    /** Count of unlocked achievements (state populated from the server). */
+    unlockedAchievements(state): number {
+      return state.achievements.filter((a) => a.unlocked).length
     },
 
     /** Recently caught instances paired with their catalog model (Profile feed). */
@@ -263,6 +221,7 @@ export const useGameStore = defineStore('game', {
         useAuthStore().setUser(res.user)
         void this.loadProgress() // pull in the new instance
         void this.loadQuests() // a catch may have advanced a quest
+        void this.loadAchievements() // …and may have unlocked an achievement
       }
       return res
     },
@@ -279,6 +238,7 @@ export const useGameStore = defineStore('game', {
       useAuthStore().setUser(res.user)
       await this.loadProgress()
       void this.loadQuests() // catch count dropped — refresh quest progress
+      void this.loadAchievements() // …and achievement progress
     },
 
     /** Wipe all progress (vehicles, stops, quests, XP). Irreversible. */
@@ -289,6 +249,7 @@ export const useGameStore = defineStore('game', {
       this.visitedAt = {}
       useAuthStore().setUser(res.user)
       void this.loadQuests()
+      void this.loadAchievements() // unlocks were wiped — refresh to the empty state
     },
 
     /**
@@ -303,6 +264,7 @@ export const useGameStore = defineStore('game', {
         this.visitedAt = res.visitedAt
         useAuthStore().setUser(res.user)
         void this.loadQuests() // a visit may have advanced a quest — refresh progress
+        void this.loadAchievements() // …and may have unlocked a travel achievement
         return res.awardedXp
       } catch (err) {
         console.error('Uložení návštěvy selhalo:', err)
@@ -321,6 +283,7 @@ export const useGameStore = defineStore('game', {
       try {
         const { user } = await progressApi.checkin(date)
         auth.setUser(user)
+        void this.loadAchievements() // a longer streak may unlock an achievement
       } catch (err) {
         console.error('Záznam denní série selhal:', err)
       }
@@ -346,6 +309,31 @@ export const useGameStore = defineStore('game', {
         }))
       } catch (err) {
         console.error('Načtení výzev selhalo:', err)
+      }
+    },
+
+    /** Load achievements with live progress from the server. The GET latches any
+     *  newly-met unlock and awards its XP server-side, so we sync the updated user
+     *  when XP was granted. (The unlock toast itself is driven by AppLayout watching
+     *  `achievements`, so we don't toast here.) */
+    async loadAchievements() {
+      const auth = useAuthStore()
+      if (!auth.isAuthenticated) return
+      try {
+        const { achievements, awardedXp, user } = await progressApi.achievements()
+        this.achievements = achievements.map((a) => ({
+          title: a.title,
+          desc: a.desc,
+          icon: a.icon,
+          tier: a.tier,
+          color: a.color,
+          value: a.value,
+          max: a.max,
+          unlocked: a.unlocked,
+        }))
+        if (awardedXp > 0) auth.setUser(user)
+      } catch (err) {
+        console.error('Načtení achievementů selhalo:', err)
       }
     },
 

@@ -265,3 +265,31 @@ CREATE TABLE IF NOT EXISTS pending_catches (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, vehicle_type_id, fleet_number)
 );
+
+-- ── Achievements ─────────────────────────────────────────────────────────────
+-- Achievement DEFINITIONS live in code (src/lib/achievements.ts), like quests —
+-- not in a table. We persist only the fact that a player UNLOCKED one: the row
+-- latches the unlock permanently (so it can't regress if progress later drops)
+-- and its existence is what gates the one-time XP reward (inserted exactly once).
+-- `achievement_id` is the stable code-side id.
+CREATE TABLE IF NOT EXISTS user_achievements (
+  user_id        BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  achievement_id TEXT NOT NULL,
+  unlocked_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, achievement_id)
+);
+
+-- ── Web Push subscriptions ───────────────────────────────────────────────────
+-- One row per browser/device push endpoint a user has opted into. `endpoint` is
+-- the unique push-service URL; `p256dh` + `auth` are the client's encryption keys
+-- (from PushSubscription.getKey). Dead endpoints (404/410 on send) are pruned in
+-- lib/push.ts. A user can have several (multiple devices/browsers).
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (user_id);

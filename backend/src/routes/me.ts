@@ -10,11 +10,15 @@ import { publicUser, type UserRow } from '../lib/user.js'
 import { deleteImage, isAllowedImage, saveImage } from '../lib/uploads.js'
 import { levelFromTotalXp } from '../lib/leveling.js'
 import { currentPeriod, questById, questsFor, type QuestTemplate } from '../lib/quests.js'
+import { evaluate as evaluateAchievements, type Metrics } from '../lib/achievements.js'
+import { sendToUser } from '../lib/push.js'
 import {
   BATTLE_DURATION_MS,
   BATTLE_GRACE_MS,
   BATTLE_WIN_XP,
   MAX_TAPS_PER_SEC,
+  decayHp,
+  decayTimeLeftMs,
   regenHp,
   rollRarity,
   rollStats,
@@ -110,7 +114,7 @@ async function collectedInstances(userId: string): Promise<CollectedInstance[]> 
   return rows.map((r) => {
     const hp = r.deployed_stop_id
       ? r.defender_hp != null && r.last_regen_at
-        ? regenHp(r.defender_hp, r.max_hp, new Date(r.last_regen_at).getTime(), now)
+        ? decayHp(r.defender_hp, r.max_hp, new Date(r.last_regen_at).getTime(), now)
         : r.hp
       : regenHp(r.hp, r.max_hp, new Date(r.hp_updated_at).getTime(), now)
     return {
@@ -168,9 +172,9 @@ meRouter.get(
 )
 
 // DELETE /api/me/progress — wipe the player's progress: collected vehicles (and
-// their photos), visited stops, quest claims/completions, and reset XP/level/
-// streak to zero. The account itself stays. For testing and a "start over"
-// option; irreversible, so the client gates it behind a confirmation.
+// their photos), visited stops, quest claims/completions, achievement unlocks,
+// and reset XP/level/streak to zero. The account itself stays. For testing and a
+// "start over" option; irreversible, so the client gates it behind a confirmation.
 meRouter.delete(
   '/progress',
   asyncHandler(async (req: AuthedRequest, res) => {
@@ -184,6 +188,7 @@ meRouter.delete(
       pool.query('delete from user_stops where user_id = $1', [userId]),
       pool.query('delete from user_quest_claims where user_id = $1', [userId]),
       pool.query('delete from user_quest_completions where user_id = $1', [userId]),
+      pool.query('delete from user_achievements where user_id = $1', [userId]),
       pool.query('delete from pending_catches where user_id = $1', [userId]),
       // Abandon any gyms this player holds and drop their battle history.
       pool.query('delete from gym_state where holder_user_id = $1', [userId]),
@@ -496,9 +501,21 @@ async function gymRow(stopId: string): Promise<GymRow | null> {
   return rows[0] ?? null
 }
 
-/** Defender HP after regen, persisting the healed value so it can't be re-healed twice. */
-async function applyRegen(g: GymRow): Promise<number> {
-  const hp = regenHp(g.defender_hp, g.defender_max_hp, new Date(g.last_regen_at).getTime(), Date.now())
+/**
+ * Resolve a defender's live HP after time-decay (see combat.decayHp). Persists the
+ * decayed value (resetting the clock — exact since the rate is HP-independent). If
+ * the defender has decayed to 0 it's auto-evicted: the holding time is banked, the
+ * vehicle returned home healed, the gym opened — and null is returned to signal
+ * "no defender". `last_regen_at` is reused as the decay anchor (column kept).
+ */
+async function applyDecay(g: GymRow): Promise<number | null> {
+  const hp = decayHp(g.defender_hp, g.defender_max_hp, new Date(g.last_regen_at).getTime(), Date.now())
+  if (hp <= 0) {
+    await finalizeHolding(g.holder_user_id, g.held_since)
+    await freeDefender(g)
+    await pool.query('delete from gym_state where stop_id = $1', [g.stop_id])
+    return null
+  }
   if (hp !== g.defender_hp) {
     await pool.query('update gym_state set defender_hp = $1, last_regen_at = now() where stop_id = $2', [
       hp,
@@ -513,6 +530,27 @@ async function finalizeHolding(holderId: string, heldSinceIso: string): Promise<
   const seconds = Math.max(0, Math.round((Date.now() - new Date(heldSinceIso).getTime()) / 1000))
   if (seconds > 0) {
     await pool.query('update users set gym_seconds = gym_seconds + $1 where id = $2', [seconds, holderId])
+  }
+}
+
+/** Push the dethroned holder a "your gym was taken" notification. Best-effort:
+ *  looks up the gym name + attacker handle for the message, then fans out. */
+async function notifyGymTaken(oustedUserId: string, attackerId: string, stopId: string): Promise<void> {
+  try {
+    const { rows } = await pool.query<{ stop_name: string; attacker: string }>(
+      `select s.name as stop_name, u.username as attacker
+         from stops s, users u where s.id = $1 and u.id = $2`,
+      [stopId, attackerId],
+    )
+    const r = rows[0]
+    await sendToUser(oustedUserId, {
+      title: 'Tvůj gym padl! 🛡️',
+      body: r ? `${r.attacker} obsadil ${r.stop_name}. Získej ho zpět!` : 'Někdo obsadil tvůj gym.',
+      url: '/mapa',
+      tag: `gym-${stopId}`,
+    })
+  } catch (err) {
+    console.error('Gym-taken notification failed:', err)
   }
 }
 
@@ -536,6 +574,7 @@ async function defenderPayload(g: GymRow, hp: number) {
   const { rows } = await pool.query<{
     model: string
     short_name: string
+    category: string
     rarity: string
     image_url: string | null
     username: string
@@ -544,7 +583,7 @@ async function defenderPayload(g: GymRow, hp: number) {
   }>(
     // The exact deployed instance gives the rolled rarity + catch photo; fall back
     // to the model's base rarity for legacy rows with no vehicle_id.
-    `select vt.model, vt.short_name, coalesce(uv.rarity, vt.rarity) as rarity, uv.image_url,
+    `select vt.model, vt.short_name, vt.category, coalesce(uv.rarity, vt.rarity) as rarity, uv.image_url,
             u.username, u.avatar_url, u.id as holder_id
        from vehicle_types vt
        join users u on u.id = $2
@@ -559,6 +598,7 @@ async function defenderPayload(g: GymRow, hp: number) {
       ? {
           model: r.model,
           shortName: r.short_name,
+          category: r.category,
           rarity: r.rarity,
           imageUrl: r.image_url,
           hp,
@@ -567,6 +607,8 @@ async function defenderPayload(g: GymRow, hp: number) {
         }
       : null,
     heldSince: g.held_since,
+    // Remaining hold time before the defender decays to 0 (and the gym opens).
+    expiresInMs: decayTimeLeftMs(hp, g.defender_max_hp),
   }
 }
 
@@ -575,9 +617,11 @@ meRouter.get(
   '/gyms/:stopId',
   asyncHandler(async (req: AuthedRequest, res) => {
     const userId = req.userId!
+    const open = { holder: null, defender: null, heldSince: null, expiresInMs: null, isMine: false }
     const g = await gymRow(req.params.stopId)
-    if (!g) return res.json({ holder: null, defender: null, heldSince: null, isMine: false })
-    const hp = await applyRegen(g)
+    if (!g) return res.json(open)
+    const hp = await applyDecay(g)
+    if (hp === null) return res.json(open) // decayed out — gym just opened
     res.json({ ...(await defenderPayload(g, hp)), isMine: g.holder_user_id === userId })
   }),
 )
@@ -667,7 +711,7 @@ meRouter.post(
     await finalizeHolding(userId, g.held_since)
     await freeDefender(g)
     await pool.query('delete from gym_state where stop_id = $1', [stopId])
-    res.json({ holder: null, defender: null, heldSince: null, isMine: false })
+    res.json({ holder: null, defender: null, heldSince: null, expiresInMs: null, isMine: false })
   }),
 )
 
@@ -691,7 +735,8 @@ meRouter.post(
       return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
     }
 
-    const hp = await applyRegen(g)
+    const hp = await applyDecay(g)
+    if (hp === null) return res.status(409).json({ error: 'Tento gym nikdo nebrání — můžeš ho obsadit.' })
     const { rows } = await pool.query<{ id: string }>(
       `insert into gym_battles (stop_id, attacker_user_id, vehicle_type_id, vehicle_id, attacker_attack, defender_hp_at_start)
        values ($1, $2, $3, $4, $5, $6) returning id`,
@@ -752,7 +797,14 @@ meRouter.post(
       return res.json({ won: false, awardedXp: 0, defenderHp: g ? g.defender_hp : null, user: publicUser(user), voided: true })
     }
 
-    const currentHp = await applyRegen(g)
+    const currentHp = await applyDecay(g)
+    // Decayed out mid-battle — the gym just opened; void this attack (the player can
+    // now claim it for free).
+    if (currentHp === null) {
+      await markResolved(false)
+      const user = (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+      return res.json({ won: false, awardedXp: 0, defenderHp: null, user: publicUser(user), voided: true })
+    }
 
     if (damage < currentHp) {
       // Defender survives — drain its motivation (HP), persist. The attacking
@@ -772,9 +824,13 @@ meRouter.post(
 
     // Win: bank the old holder's time, return their (healed) vehicle, and take the
     // gym with the attacking instance at full HP.
+    const ousted = g.holder_user_id
     await finalizeHolding(g.holder_user_id, g.held_since)
     await freeDefender(g)
     await pool.query('delete from gym_state where stop_id = $1', [b.stop_id])
+
+    // Notify the dethroned holder their gym was taken (best-effort, non-blocking).
+    void notifyGymTaken(ousted, userId, b.stop_id)
 
     // Deploy the attacker's instance (claim it; if it's busy, the gym just stays open).
     let newDefenderHp: number | null = null
@@ -1046,5 +1102,77 @@ meRouter.post(
     }
 
     res.json({ user: publicUser(user) })
+  }),
+)
+
+/** Build the achievement metrics for a player from authoritative DB counts. */
+async function playerMetrics(userId: string): Promise<Metrics> {
+  const [caught, models, visited, byCat, catalogByCat, catalogTotal, streak] = await Promise.all([
+    pool.query<{ n: number }>('select count(*)::int n from user_vehicles where user_id = $1', [userId]),
+    pool.query<{ n: number }>('select count(distinct vehicle_type_id)::int n from user_vehicles where user_id = $1', [userId]),
+    pool.query<{ n: number }>('select count(*)::int n from user_stops where user_id = $1', [userId]),
+    pool.query<{ category: string; n: number }>(
+      `select vt.category, count(distinct uv.vehicle_type_id)::int n
+         from user_vehicles uv join vehicle_types vt on vt.id = uv.vehicle_type_id
+        where uv.user_id = $1 group by vt.category`,
+      [userId],
+    ),
+    pool.query<{ category: string; n: number }>('select category, count(*)::int n from vehicle_types group by category'),
+    pool.query<{ n: number }>('select count(*)::int n from vehicle_types'),
+    pool.query<{ streak_count: number }>('select streak_count from users where id = $1', [userId]),
+  ])
+  const modelsByCategory: Record<string, number> = {}
+  for (const r of byCat.rows) modelsByCategory[r.category] = r.n
+  const catalogByCategory: Record<string, number> = {}
+  for (const r of catalogByCat.rows) catalogByCategory[r.category] = r.n
+  return {
+    caught: caught.rows[0]?.n ?? 0,
+    models: models.rows[0]?.n ?? 0,
+    visited: visited.rows[0]?.n ?? 0,
+    streak: streak.rows[0]?.streak_count ?? 0,
+    modelsByCategory,
+    catalogByCategory,
+    catalogTotal: catalogTotal.rows[0]?.n ?? 0,
+  }
+}
+
+// GET /api/me/achievements — every achievement with this player's live progress.
+// Side effect (like GET /quests latching completions): the first time progress
+// reaches a target we persist the unlock and award its one-time XP. The insert's
+// ON CONFLICT guard makes the payout idempotent, so polling can't double-pay.
+// Returns the freshly-unlocked ids + updated user so the client can toast + sync XP.
+meRouter.get(
+  '/achievements',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const metrics = await playerMetrics(userId)
+    const already = await pool.query<{ achievement_id: string }>(
+      'select achievement_id from user_achievements where user_id = $1',
+      [userId],
+    )
+    const unlockedIds = new Set(already.rows.map((r) => r.achievement_id))
+    const achievements = evaluateAchievements(metrics, unlockedIds)
+
+    // Persist + reward any achievement newly at/over target this request.
+    const newlyUnlocked: string[] = []
+    let rewardXp = 0
+    for (const a of achievements) {
+      if (!a.unlocked || unlockedIds.has(a.id)) continue
+      const ins = await pool.query(
+        `insert into user_achievements (user_id, achievement_id) values ($1, $2)
+         on conflict do nothing returning achievement_id`,
+        [userId, a.id],
+      )
+      if (ins.rowCount) {
+        newlyUnlocked.push(a.id)
+        rewardXp += a.reward
+      }
+    }
+
+    const user = rewardXp > 0
+      ? await awardXp(userId, rewardXp)
+      : (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+
+    res.json({ achievements, newlyUnlocked, awardedXp: rewardXp, user: publicUser(user) })
   }),
 )

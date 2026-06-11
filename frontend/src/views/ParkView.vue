@@ -19,6 +19,13 @@ const filter = ref<Filter>('all')
 const view = ref<'mrizka' | 'seznam'>('mrizka')
 const detail = ref<CatalogVehicle | null>(null)
 
+// Gym deployment filter: show everything, only models defending a gym, or only
+// models with a free (non-deployed) instance. Hidden until the player has at
+// least one vehicle in a gym, since otherwise it'd do nothing.
+type GymFilter = 'all' | 'deployed' | 'idle'
+const gymFilter = ref<GymFilter>('all')
+const hasDeployed = computed(() => game.collected.some((c) => c.deployedStopId != null))
+
 const panelEl = ref<HTMLElement | null>(null)
 useDialog(panelEl, { onClose: () => (detail.value = null), active: () => detail.value != null })
 
@@ -30,7 +37,7 @@ const RARITY_ORDER: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, lege
 // few locked "teasers" as a nudge, with the rest summarised below the grid.
 const MAX_LOCKED = 2
 
-/** Catalog filtered by category, with owned-instance info, collected first. */
+/** Catalog filtered by category + gym status, with owned-instance info, collected first. */
 const list = computed(() => {
   const byModel = game.instancesByModel
   const items = (
@@ -42,15 +49,26 @@ const list = computed(() => {
       (acc, c) => (acc && RARITY_ORDER[acc.rarity] >= RARITY_ORDER[c.rarity] ? acc : c),
       null,
     )
-    return { v, collected: instances.length > 0, count: instances.length, best }
+    const deployed = instances.filter((c) => c.deployedStopId != null).length
+    return { v, collected: instances.length > 0, count: instances.length, deployed, best }
   })
-  return items.sort((a, b) => Number(b.collected) - Number(a.collected))
+  // Gym filter: 'deployed' keeps models with a vehicle in a gym; 'idle' keeps
+  // models with at least one free instance. Both imply collected, so locked
+  // teasers drop out automatically.
+  const byGym =
+    gymFilter.value === 'deployed'
+      ? items.filter((i) => i.deployed > 0)
+      : gymFilter.value === 'idle'
+        ? items.filter((i) => i.count - i.deployed > 0)
+        : items
+  return byGym.sort((a, b) => Number(b.collected) - Number(a.collected))
 })
 
-/** Collected cards + at most MAX_LOCKED locked teasers (the rest is summarised). */
+/** Collected cards + at most MAX_LOCKED locked teasers (suppressed while a gym
+ *  filter is active, since those are collected-only views). */
 const visibleList = computed(() => {
   const collected = list.value.filter((i) => i.collected)
-  const locked = list.value.filter((i) => !i.collected)
+  const locked = gymFilter.value === 'all' ? list.value.filter((i) => !i.collected) : []
   return [...collected, ...locked.slice(0, MAX_LOCKED)]
 })
 
@@ -144,6 +162,18 @@ const previewStyle = computed(() =>
         </SgTag>
       </div>
 
+      <div v-if="hasDeployed" class="gymfilter">
+        <SgSegmentedControl
+          v-model="gymFilter"
+          full-width
+          :options="[
+            { value: 'all', label: 'Vše' },
+            { value: 'deployed', label: 'V gymu', icon: 'award' },
+            { value: 'idle', label: 'Volná', icon: 'shield' },
+          ]"
+        />
+      </div>
+
       <div class="screen__sectionhead">
         <h2 class="eyebrow">{{ filter === 'all' ? 'Všechny modely' : game.cats[filter].plural }}</h2>
         <SgSegmentedControl
@@ -156,6 +186,9 @@ const previewStyle = computed(() =>
       </div>
 
       <p v-if="!game.catalogLoaded" class="hint">Načítám katalog…</p>
+      <p v-else-if="visibleList.length === 0" class="hint">
+        {{ gymFilter === 'deployed' ? 'Žádné vozidlo zrovna nebrání gym.' : gymFilter === 'idle' ? 'Všechna vozidla brání gymy.' : 'Tady zatím nic není.' }}
+      </p>
       <div v-else class="grid" :class="{ 'grid--list': view === 'seznam' }">
         <SgVehicleCard
           v-for="(item, i) in visibleList"
@@ -267,6 +300,8 @@ const previewStyle = computed(() =>
   margin: 0 -16px;
   @include hide-scrollbar;
 }
+
+.gymfilter { margin-bottom: 14px; }
 
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .grid--list { grid-template-columns: 1fr; }

@@ -1,36 +1,37 @@
 # Roadmapa
 
-## MVP — v1.0
+## Hotovo — hlavní herní smyčka
 
-První verze přináší celou hlavní herní smyčku od začátku do konce:
+Celá hlavní smyčka běží end-to-end, frontend i backend jsou nasazené (Pages + Fly.io):
 
-- ✅ Registrace
-- ✅ Přihlášení
-- ✅ Mapa
-- ✅ GPS lokalizace
-- ✅ Databáze vozidel
-- ✅ Databáze zastávek
-- ✅ Nahrávání fotografií
-- ✅ OCR evidenčních čísel
-- ✅ Vozový park (sbírka)
-- ✅ Achievementy
-- ✅ Denní výzvy
+- ✅ Registrace + přihlášení (e-mail/heslo **i Google sign-in**)
+- ✅ Mapa + GPS lokalizace (Leaflet, zastávky z PID GTFS)
+- ✅ Databáze vozidel (katalog modelů) a zastávek
+- ✅ Nahrávání fotografií (S3 / lokální disk)
+- ✅ Rozpoznávání vozidel z fotky — **Claude vision** čte evid. číslo a vybírá model z katalogu
+- ✅ Vozový park (sbírka per fyzický kus, vzácnost, bojové statistiky)
+- ✅ Denní výzvy (deterministické, server-autoritativní)
+- ✅ **Gymy** — king-of-the-hill battles na významných stanicích; obránce **slábne v čase** (výdrž klesá k 0 za ~4 dny) a pak je automaticky vyhozen
+- ✅ **Žebříček** hráčů (s ikonou metriky u každého řádku)
+- ✅ **Denní check-in + série (streak)**
+- ✅ **Achievementy** — server-autoritativní (perzistentní odemčení + jednorázová XP odměna podle tieru)
+- ✅ **Web Push notifikace** — VAPID + service worker; trigger „tvůj gym byl obsazen"; toggle v profilu
+- ✅ **Tutoriál pro nováčky** — úvodní carousel + coachmark na tlačítko kamery (jednou na zařízení)
+- ✅ **Filtr parku** podle nasazení v gymu (Vše / V gymu / Volná)
+- ✅ Instalovatelná **PWA** (zvuky, haptika, hudba, level-up animace)
+- ✅ In-app hlášení chyb (→ GitHub Issues)
+- ✅ Rate-limiting na `/api/recognize` (per-user, placené Claude volání)
 
-> Jde o **plánovaný** obsah v1.0. Aktuální stav implementace: frontend je výchozí Vue scaffold, backend zatím neexistuje. Viz [FRONTEND.md](FRONTEND.md) a [BACKEND.md](BACKEND.md).
+## Rozpracované / chybí
 
-## Budoucí verze
+- ⏳ **Časované notifikace** (obnova denních výzev, připomínka série) — vyžadují plánovač/cron; backend stroj na Fly usíná, takže event-driven push („gym obsazen") je hotový, časované zatím ne.
+- ⏳ **Odměny za dokončení vozových sérií** — designem zamýšlené, zatím neimplementované.
+- ⏳ **Robustnost** — chybí automatizované testy (vhodné hlavně pro `combat`/`leveling`/`quests`/`achievements`) a anti-spoof validace u GPS návštěv/check-inů.
 
-- **OCR:** nahradit Tesseract.js **vlastním ML modelem** trénovaným na reálných evidenčních číslech vozidel pro lepší přesnost.
-- Další herní prvky: odměny za dokončení vozových sérií, bohatší úrovně achievementů, sociální/žebříčkové funkce (kandidáti — nezávazné).
+## Budoucí verze (kandidáti)
 
-## Navržené pořadí vývoje
-
-Pragmatická posloupnost k dosažení smyčky v1.0:
-
-1. **Základy** — úklid repozitáře ([FOLDER-STRUCTURE.md](FOLDER-STRUCTURE.md)), instalace frontend závislostí (Router, Pinia, SCSS, Axios, Leaflet), scaffold backendu.
-2. **Autentizace** — tabulka `users`, registrace/přihlášení, JWT, napojení Login obrazovky na reálnou autentizaci.
-3. **Mapa + zastávky** — katalog zastávek + seed, Leaflet mapa, geolokace, návštěvy zastávek udělující XP.
-4. **Zachycení + OCR** — proces kamery, upload fotky, OCR endpoint, porovnání s katalogem vozidel, objev + XP.
-5. **Vozový park** — mřížka sbírky, kategorie, vzácnost, procento dokončení, zamčené sloty.
-6. **Výzvy a achievementy** — denní generování, progress pro jednotlivé hráče, vyhodnocování achievementů.
-7. **Profil a doladění** — statistiky, kruh levelu, série, sjednocení s design systémem.
+- **Rozpoznávání:** doladění promptu/modelu, případně vlastní ML model trénovaný na reálných evidenčních číslech pro vyšší přesnost a nižší náklady.
+- **Sociální vrstva:** přátelé, týmy/frakce (gymy by získaly týmový rozměr à la Pokémon GO), prohlížení cizích profilů.
+- **Retence:** web push notifikace (gym přebrán, obnova výzev, připomínka série), onboarding tutoriál.
+- **Provoz:** monitoring chyb (Sentry), offline cache mapy přes service worker.
+- **Rozsah:** další města nad rámec Prahy (rozšíření katalogu a GTFS importu).

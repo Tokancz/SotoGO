@@ -1,18 +1,22 @@
 # Deployment
 
-Three pieces: **frontend** on GitHub Pages (auto-deployed), **backend** on a
-container host, and **PostgreSQL** (already hosted at ssps.cajthaml.eu).
+Three pieces, **both auto-deployed from `main` via GitHub Actions**: **frontend**
+on GitHub Pages, **backend** on Fly.io (`sotogo-api`), and **PostgreSQL**
+(hosted at ssps.cajthaml.eu).
 
 ```
 Browser ──https──▶ GitHub Pages (Vue SPA)
                       │ https/JSON
                       ▼
-                 Backend host (Express, Docker)  ──▶  PostgreSQL (school server)
+                 Fly.io (sotogo-api, Express/Docker)  ──▶  PostgreSQL (school server)
+                      │
+                      ▼
+                 Tigris S3 (catch photos) · Anthropic API (recognition)
 ```
 
 > Both must be **HTTPS**. GitHub Pages is HTTPS, so the backend must be too, or
-> the browser blocks the requests as mixed content. Render/Fly/Koyeb all give you
-> a free HTTPS subdomain.
+> the browser blocks the requests as mixed content. Fly gives you a free HTTPS
+> subdomain (`https://sotogo-api.fly.dev`).
 
 ---
 
@@ -26,7 +30,7 @@ builds the app and pushes it to the `gh-pages` branch on every push to `main`
 
 1. **Set build variables** — repo **Settings → Secrets and variables → Actions → Variables** (the *Variables* tab, not Secrets):
    - `VITE_GOOGLE_CLIENT_ID` = your Google OAuth client id
-   - `VITE_API_URL` = your backend URL + `/api` (set this after step 2 — e.g. `https://sotogo-api.onrender.com/api`)
+   - `VITE_API_URL` = your backend URL + `/api` (set this after step 2 — e.g. `https://sotogo-api.fly.dev/api`)
 2. **Push to main** (or run the workflow manually). It creates the `gh-pages` branch.
 3. **Enable Pages** — **Settings → Pages → Build and deployment → Source: "Deploy from a branch"**, branch **`gh-pages`**, folder **`/ (root)`**. Save.
 4. Site goes live at **https://tokancz.github.io/SotoGO/**
@@ -36,37 +40,43 @@ copies `index.html` → `404.html` so deep links / refreshes work (SPA fallback)
 
 ---
 
-## 2. Backend → container host
+## 2. Backend → Fly.io (automatic)
 
-You already have PostgreSQL, so you only host the Node API. The
-[`backend/Dockerfile`](../backend/Dockerfile) works on any container host.
+The workflow [`.github/workflows/deploy-backend.yml`](../.github/workflows/deploy-backend.yml)
+runs `flyctl deploy --remote-only` on every push to `main` that touches
+`backend/**`. The app config is [`backend/fly.toml`](../backend/fly.toml)
+(`sotogo-api`, region `fra`, auto-stop when idle).
 
-### Option A — Render (recommended, free, no card)
+**One-time setup:**
 
-1. https://render.com → **New → Web Service** → connect the GitHub repo.
-2. **Root Directory:** `backend`. Render detects the Dockerfile (Runtime: Docker).
-   *(Or pick Node runtime: Build `npm ci && npm run build`, Start `node dist/index.js`.)*
-3. **Instance type:** Free.
-4. **Environment variables** (from `backend/.env.example`):
+1. **Install flyctl** and `fly auth login`, then from `backend/`:
+   `fly launch --no-deploy` (or `fly apps create sotogo-api`).
+2. **Set the CI secret** — repo **Settings → Secrets and variables → Actions → Secrets**:
+   `FLY_API_TOKEN` (from `fly tokens create deploy`).
+3. **Provision photo storage** (optional but recommended): `fly storage create`
+   sets `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, and credentials as secrets (Tigris).
+4. **Set app secrets** with `fly secrets set KEY=value` (from `backend/.env.example`):
    | Key | Value |
    |---|---|
    | `DATABASE_URL` | your Postgres connection string |
    | `DB_SCHEMA` | `SotoGO` |
    | `JWT_SECRET` | your long random secret |
    | `GOOGLE_CLIENT_ID` | your Google client id |
+   | `ANTHROPIC_API_KEY` | for photo recognition (`/api/recognize`) |
+   | `RECOGNIZE_MODEL` | optional, default `claude-haiku-4-5` |
    | `GITHUB_TOKEN` | your fine-grained PAT (bug reporter) |
    | `GITHUB_REPO` | `Tokancz/SotoGO` |
    | `CLIENT_ORIGIN` | `https://tokancz.github.io` |
-   *(Don't set `PORT` — Render injects it; the app reads it automatically.)*
-5. **Create Web Service.** You get a URL like `https://sotogo-api.onrender.com`.
+   | `ADMIN_EMAILS` | optional, comma-separated admin emails |
+   | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | optional, for Web Push (`npx web-push generate-vapid-keys`) |
+   | `VAPID_SUBJECT` | optional, `mailto:` contact (defaults to a placeholder) |
+   *(Don't set `PORT` — `fly.toml` uses `internal_port = 3000`, which the app reads.)*
+5. **Push to main** (or `fly deploy` once manually). You get
+   `https://sotogo-api.fly.dev`.
 
-> Free Render instances **sleep after ~15 min idle**, so the first request after a
-> nap takes ~30 s to wake. Fine for a hobby project.
-
-### Option B — Fly.io / Koyeb
-
-Both deploy the same Dockerfile. Koyeb has a no-card free instance; Fly needs a
-card but won't sleep. Point the platform at `backend/` and set the same env vars.
+> `min_machines_running = 0` means the machine **auto-stops when idle** and
+> cold-starts on the next request (a second or two). Fine for a hobby project.
+> The full env var reference is in [BACKEND.md](BACKEND.md).
 
 ---
 

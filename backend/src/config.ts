@@ -34,6 +34,10 @@ export const config = {
   // the client falls back to the manual model picker.
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
   recognizeModel: process.env.RECOGNIZE_MODEL ?? 'claude-haiku-4-5',
+  // Per-user cap on /api/recognize calls per minute — each is a paid vision
+  // request, so this bounds cost/abuse. Generous for genuine play (one call per
+  // photo); lower it if costs creep.
+  recognizeRatePerMin: Number(process.env.RECOGNIZE_RATE_PER_MIN ?? 20),
   // Catch-photo uploads. When S3 (below) is configured, photos go to the bucket
   // and survive restarts/redeploys; otherwise they're written to this local dir
   // and served at /uploads (fine for dev, ephemeral on most hosts).
@@ -58,4 +62,13 @@ export const config = {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
+  // Web Push (VAPID). When the keypair is set, /api/push works and the server can
+  // send notifications (e.g. when a gym is taken). Generate a pair once with
+  // `npx web-push generate-vapid-keys`. The public key is safe to ship to clients;
+  // the private key must stay secret. `subject` is a mailto:/https: contact URL.
+  vapid: {
+    publicKey: process.env.VAPID_PUBLIC_KEY ?? '',
+    privateKey: process.env.VAPID_PRIVATE_KEY ?? '',
+    subject: process.env.VAPID_SUBJECT ?? 'mailto:admin@sotogo.app',
+  },
 }

@@ -63,11 +63,36 @@ export const BATTLE_GRACE_MS = 3_000
 export const MAX_TAPS_PER_SEC = 6
 /** XP for taking over a gym. */
 export const BATTLE_WIN_XP = 80
-/** Defender HP healed per hour while defending (regenerates after being attacked). */
+/** HP an IDLE vehicle heals per hour (so a battle-drained vehicle recovers before
+ *  it can be redeployed). Defending vehicles do NOT regen — they decay (below). */
 export const HP_REGEN_PER_HOUR = 40
 
-/** Defender HP after regen, given the stored hp and when it was last updated. */
+/** Idle-vehicle HP after regen, given the stored hp and when it was last updated. */
 export function regenHp(hp: number, maxHp: number, lastRegenAtMs: number, nowMs: number): number {
   const healed = ((nowMs - lastRegenAtMs) / 3_600_000) * HP_REGEN_PER_HOUR
   return Math.min(maxHp, Math.floor(hp + Math.max(0, healed)))
+}
+
+// ── Gym decay ────────────────────────────────────────────────────────────────
+// A defender slowly loses HP just by holding the gym (like Pokémon GO motivation),
+// so no one holds forever: at full HP a defender decays to 0 over GYM_DECAY_DAYS
+// and is then auto-evicted (the gym opens, the vehicle goes home healed). Attacks
+// drain HP on top of this, so a contested gym falls faster. The rate is constant
+// (maxHp per GYM_DECAY_MS), independent of current HP — so persisting the decayed
+// value and resetting the clock preserves the exact trajectory.
+export const GYM_DECAY_DAYS = 4
+export const GYM_DECAY_MS = GYM_DECAY_DAYS * 24 * 3_600_000
+
+/** Defender HP after time-decay, given the stored hp and when it was last updated.
+ *  Floors at 0 — callers treat 0 as "abandon the gym". */
+export function decayHp(hp: number, maxHp: number, lastDecayAtMs: number, nowMs: number): number {
+  const lost = maxHp * (Math.max(0, nowMs - lastDecayAtMs) / GYM_DECAY_MS)
+  return Math.max(0, Math.floor(hp - lost))
+}
+
+/** Milliseconds until a defender at `hp`/`maxHp` decays to zero (its remaining
+ *  hold time at the current rate). */
+export function decayTimeLeftMs(hp: number, maxHp: number): number {
+  if (maxHp <= 0) return 0
+  return Math.max(0, Math.round((hp / maxHp) * GYM_DECAY_MS))
 }
