@@ -74,7 +74,7 @@ export function useCamera() {
     const sw = crop ? crop.w * vw : vw
     const sh = crop ? crop.h * vh : vh
 
-    // Upscale narrow crops so small digits give Tesseract more to work with.
+    // Upscale narrow crops so small digits give the recognition model more to work with.
     const scale = Math.min(3, Math.max(1, 900 / sw))
     const canvas = document.createElement('canvas')
     canvas.width = Math.round(sw * scale)

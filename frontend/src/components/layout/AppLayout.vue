@@ -11,8 +11,8 @@ import SgToastHost from '@/components/ui/SgToastHost.vue'
 import LevelUpOverlay from '@/components/game/LevelUpOverlay.vue'
 import OnboardingOverlay from '@/components/layout/OnboardingOverlay.vue'
 
-// Loaded on demand when the camera opens — keeps Tesseract.js (OCR) and the
-// capture UI out of the initial bundle.
+// Loaded on demand when the camera opens — keeps the capture/camera UI out of
+// the initial bundle (recognition itself is server-side via /api/recognize).
 const CaptureSheet = defineAsyncComponent(() => import('@/components/layout/CaptureSheet.vue'))
 
 const route = useRoute()
