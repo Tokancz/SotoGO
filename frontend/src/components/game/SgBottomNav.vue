@@ -57,6 +57,10 @@ defineEmits<{ select: [id: string] }>()
   padding: 0 6px;
   padding-bottom: env(safe-area-inset-bottom);
   position: relative;
+  // Stack above the map's in-page sheets (stop/gym, z-index 5) so the elevated
+  // camera FAB is never covered by them. Full-screen modals (capture/battle/
+  // toasts) live above this at z-index 40+.
+  z-index: 6;
 }
 .sg-bnav__item {
   flex: 1;
