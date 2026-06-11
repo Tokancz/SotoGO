@@ -48,11 +48,19 @@ defineEmits<{ select: [id: string] }>()
   align-items: flex-end;
   justify-content: space-around;
   background: var(--surface-card);
-  height: var(--bottom-nav-h, 76px);
+  // Grow by the bottom safe-area (iOS home indicator) so the buttons keep their
+  // full height instead of being squished into it — with box-sizing:border-box,
+  // padding-bottom alone would eat into the fixed height. The reserved inset then
+  // sits below the buttons, clear of the home indicator in standalone (PWA) mode.
+  height: calc(var(--bottom-nav-h, 76px) + env(safe-area-inset-bottom));
   box-shadow: 0 -2px 10px rgba(20, 26, 33, 0.07), inset 0 1px 0 var(--border-subtle);
   padding: 0 6px;
   padding-bottom: env(safe-area-inset-bottom);
   position: relative;
+  // Stack above the map's in-page sheets (stop/gym, z-index 5) so the elevated
+  // camera FAB is never covered by them. Full-screen modals (capture/battle/
+  // toasts) live above this at z-index 40+.
+  z-index: 6;
 }
 .sg-bnav__item {
   flex: 1;
