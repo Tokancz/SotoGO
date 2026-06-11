@@ -1,27 +1,11 @@
 # Struktura složek
 
-Repozitář používá oddělené složky `frontend/` a `backend/` jako sourozence, plus designovou referenci jasně označenou jako nešiplný materiál.
-
-## Aktuální stav
+Repozitář používá oddělené složky `frontend/` a `backend/` jako sourozence, plus designovou referenci jasně označenou jako materiál, který se nenasazuje.
 
 ```
 SotoGO/                        ← kořen repozitáře
 ├─ README.md
-├─ docs/                       ← tato dokumentace
-├─ frontend/                   ← Vue 3 aplikace (zatím výchozí Vite scaffold)
-└─ design/                     ← designová reference (prototyp + design systém)
-```
-
-> ✅ Přejmenování `SotoGO/` → `frontend/` a `sotogo_handoff/` → `design/` už proběhlo.
-> ⏳ Složka `backend/` zatím **neexistuje** — vznikne při zahájení API.
-
----
-
-## Cílové uspořádání
-
-```
-SotoGO/                        ← kořen repozitáře
-├─ README.md
+├─ .github/workflows/          ← deploy-frontend.yml (Pages), deploy-backend.yml (Fly.io)
 ├─ docs/                       ← tato dokumentace
 │  ├─ ARCHITECTURE.md
 │  ├─ GAME-DESIGN.md
@@ -29,27 +13,27 @@ SotoGO/                        ← kořen repozitáře
 │  ├─ FRONTEND.md
 │  ├─ BACKEND.md
 │  ├─ FOLDER-STRUCTURE.md
+│  ├─ DEPLOY.md
 │  └─ ROADMAP.md
 │
-├─ frontend/                   ← Vue 3 aplikace
-│  ├─ index.html
-│  ├─ package.json
-│  ├─ vite.config.ts
-│  ├─ public/
+├─ frontend/                   ← Vue 3 aplikace (PWA)
+│  ├─ index.html · package.json · vite.config.ts
+│  ├─ public/                  ← site.webmanifest, ikony, og-image
 │  └─ src/                     ← uspořádání detailně v docs/FRONTEND.md
 │     ├─ router/  stores/  services/  views/
-│     ├─ components/{core,forms,game}/
-│     ├─ composables/  types/  styles/  assets/
+│     ├─ components/{ui,game,layout}/  + SgIcon.vue
+│     ├─ composables/  lib/  data/  types/  styles/  assets/
 │     ├─ App.vue
 │     └─ main.ts
 │
-├─ backend/                    ← nové — Node/Express API (viz docs/BACKEND.md)
-│  ├─ package.json
-│  ├─ .env.example
+├─ backend/                    ← Node/Express API (viz docs/BACKEND.md)
+│  ├─ package.json · tsconfig.json
+│  ├─ Dockerfile · fly.toml    ← nasazení na Fly.io (sotogo-api)
+│  ├─ uploads/                 ← lokální fallback úložiště fotek (dev)
 │  └─ src/
-│     ├─ routes/  controllers/  services/  middleware/
-│     ├─ db/  ocr/  types/
-│     └─ index.ts
+│     ├─ index.ts · config.ts
+│     ├─ routes/  services/  lib/  middleware/
+│     ├─ db/  data/  util/
 │
 └─ design/                     ← designový zdroj pravdy, NENASAZUJE se
    ├─ README.md
@@ -59,7 +43,7 @@ SotoGO/                        ← kořen repozitáře
 
 **Proč tato podoba**
 
-- `frontend/` + `backend/` jako sourozenci jsou nejsrozumitelnější uspořádání — bez monorepo nástrojů.
+- `frontend/` + `backend/` jako sourozenci jsou nejsrozumitelnější uspořádání bez monorepo nástrojů.
 - `design/` zachovává referenci, ale její název + README dávají najevo, že se nenasazuje.
 - `docs/` drží sdílenou dokumentaci nezávislou na stacku.
 
@@ -67,27 +51,19 @@ SotoGO/                        ← kořen repozitáře
 
 ## Alternativa: monorepo s workspaces
 
-Vyplatí se jen tehdy, když budeš chtít **sdílet TypeScript typy mezi frontendem a backendem** (herní model je přirozený kandidát) přes sdílený balíček a npm/pnpm workspaces:
+Vyplatí se, až bude chtít **sdílet TypeScript typy mezi frontendem a backendem** (herní model je přirozený kandidát) přes sdílený balíček a npm/pnpm workspaces. Dnes jsou typy v každé části zvlášť; na workspaces se přejde, pokud začne vadit duplikace.
 
 ```
 SotoGO/
 ├─ package.json                # workspaces: ["apps/*", "packages/*"]
-├─ docs/
-├─ apps/
-│  ├─ web/                     # Vue frontend
-│  └─ api/                     # Express backend
-├─ packages/
-│  └─ shared/                  # sdílené TS typy (PLAYER, VEHICLE, STOP, …)
-└─ design/                     # designová reference
+├─ apps/{web,api}/
+├─ packages/shared/            # sdílené TS typy
+└─ design/
 ```
-
-Kompromis: čistší sdílení typů a jedna instalace, za cenu nastavení workspaces. Pro sólo/raný projekt je jednoduché uspořádání `frontend/` + `backend/` lepší výchozí volba; na workspaces přejdi později, pokud začne vadit duplikace typů.
 
 ---
 
-## Zbývající úklid
+## Drobnosti
 
-1. Vytvořit `backend/` při zahájení API.
-2. Přidat kořenový `.gitignore` (node_modules, dist, .env, .DS_Store — **`.DS_Store` je momentálně commitovaný**).
-3. Nahradit ve frontendu `README.md` z výchozí šablony app-specifickým, nebo ho smazat (kořenový README + docs projekt pokrývají).
-4. Sjednotit casing názvu repozitáře (`sotogo` vs `SotoGO`).
+- Kořenový `.gitignore` (node_modules, dist, .env, .DS_Store) — držet aktuální.
+- Frontend `package.json` skripty: `dev` / `build` (`vue-tsc -b && vite build`) / `preview`.
