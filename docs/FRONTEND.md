@@ -48,7 +48,7 @@ Spodní navigace ve stylu Pokémon GO — vyvýšené centrální tlačítko **K
 - **Profil** — avatar, kruh levelu, denní série, dlaždice statistik, nastavení (zvuky atd.).
 - **Login / Registrace** — segmentový přepínač Login⇄Registrace, e-mail/heslo, přezdívka, „Zůstat přihlášen", Google sign-in.
 
-> **Achievementy** jsou zatím klientské: definice v `src/data/seed.ts`, progress počítaný lokálně z počtu chycených vozidel. Vozidla, zastávky a denní výzvy už chodí z API. Serverové achievementy viz [BACKEND.md](BACKEND.md).
+> **Achievementy** chodí z API (`GET /me/achievements`) — odemčení i XP jsou server-autoritativní. Klient drží jejich progress ve store (`loadAchievements`) a odemčení oznamuje toastem (baseline se nasadí po načtení, aby existující odemčení nehlásila znovu). Viz [BACKEND.md](BACKEND.md).
 
 ## Uspořádání `src/`
 

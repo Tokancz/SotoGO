@@ -17,11 +17,9 @@ Express REST API nad PostgreSQL. Implementovaný a nasazený na Fly.io (`sotogo-
 ## Zodpovědnosti
 
 - **Autentizace** — registrace/přihlášení e-mailem+heslem, Google sign-in, vydávání a ověřování JWT.
-- **Herní logika (autoritativně na serveru)** — rozpoznání vozidla z fotky, evidence objevů per fyzický kus (evidenční číslo), losování vzácnosti a bojových statistik, udělování XP a výpočet levelu ([`src/lib/leveling.ts`](../backend/src/lib/leveling.ts)), deterministické denní výzvy ([`src/lib/quests.ts`](../backend/src/lib/quests.ts)), gym battles ([`src/lib/combat.ts`](../backend/src/lib/combat.ts)), denní check-in a série, žebříček.
+- **Herní logika (autoritativně na serveru)** — rozpoznání vozidla z fotky, evidence objevů per fyzický kus (evidenční číslo), losování vzácnosti a bojových statistik, udělování XP a výpočet levelu ([`src/lib/leveling.ts`](../backend/src/lib/leveling.ts)), deterministické denní výzvy ([`src/lib/quests.ts`](../backend/src/lib/quests.ts)), achievementy ([`src/lib/achievements.ts`](../backend/src/lib/achievements.ts)), gym battles ([`src/lib/combat.ts`](../backend/src/lib/combat.ts)), denní check-in a série, žebříček.
 - **Perzistence** — všechny entity v PostgreSQL (viz [DATA-MODEL.md](DATA-MODEL.md)).
 - **Ukládání fotek** — fotky hráče do S3 (durable) nebo lokálního disku (`/uploads`, ephemerální) — viz [`src/lib/uploads.ts`](../backend/src/lib/uploads.ts).
-
-> **Achievementy zatím nemají backend.** Definice + progress achievementů jsou stále jen na klientovi (seed, progress počítaný lokálně z počtu chycených vozidel). Serverové achievementy jsou otevřený úkol — viz [ROADMAP.md](ROADMAP.md).
 
 ## REST API (skutečný stav)
 
@@ -45,7 +43,7 @@ Vše kromě `/api/health`, `/api/auth/*`, `/api/recognize`, `/api/report` a kata
 ### Rozpoznávání a hlášení
 | Metoda | Cesta | Účel |
 |---|---|---|
-| POST | `/api/recognize` | Upload fotky → Claude vision vrátí evidenční číslo + kandidátní modely z katalogu |
+| POST | `/api/recognize` | Upload fotky → Claude vision vrátí evidenční číslo + kandidátní modely z katalogu (per-user rate limit, `RECOGNIZE_RATE_PER_MIN`) |
 | POST | `/api/report` | In-app hlášení chyby → založí GitHub Issue |
 
 ### Hráč — `/api/me` (vše JWT)
@@ -66,6 +64,7 @@ Vše kromě `/api/health`, `/api/auth/*`, `/api/recognize`, `/api/report` a kata
 | POST | `/api/me/stops/:id/visit` | Evidence návštěvy zastávky → uděluje XP |
 | GET | `/api/me/quests` | Dnešní denní výzvy + progress + stav nárokování |
 | POST | `/api/me/quests/:id/claim` | Vyzvednutí odměny za splněnou výzvu |
+| GET | `/api/me/achievements` | Achievementy + live progress; latchuje nové odemčení a uděluje jednorázovou XP |
 | POST | `/api/me/checkin` | Denní check-in → aktualizuje sérii |
 
 ## Uspořádání `backend/src/`
@@ -109,6 +108,7 @@ Povinné: `DATABASE_URL`, `JWT_SECRET`. Ostatní jsou volitelné (funkce se eleg
 | `GOOGLE_CLIENT_ID` | Client id pro Google sign-in (prázdné → route hlásí „nenastaveno") |
 | `ANTHROPIC_API_KEY` | Klíč pro rozpoznávání fotek (prázdné → klient spadne na ruční výběr modelu) |
 | `RECOGNIZE_MODEL` | Model pro rozpoznávání (default `claude-haiku-4-5`) |
+| `RECOGNIZE_RATE_PER_MIN` | Per-user limit volání `/api/recognize` za minutu (default 20) |
 | `GITHUB_TOKEN`, `GITHUB_REPO` | Token + repo (`owner/name`) pro in-app hlášení chyb |
 | `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `S3_PUBLIC_URL` | S3 úložiště fotek (Fly Tigris); bez nich fallback na lokální disk |
 | `UPLOAD_DIR`, `MAX_UPLOAD_BYTES` | Lokální adresář a limit velikosti uploadu |

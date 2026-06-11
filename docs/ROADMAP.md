@@ -14,14 +14,15 @@ Celá hlavní smyčka běží end-to-end, frontend i backend jsou nasazené (Pag
 - ✅ **Gymy** — king-of-the-hill battles na významných stanicích
 - ✅ **Žebříček** hráčů
 - ✅ **Denní check-in + série (streak)**
+- ✅ **Achievementy** — server-autoritativní (perzistentní odemčení + jednorázová XP odměna podle tieru)
 - ✅ Instalovatelná **PWA** (zvuky, haptika, hudba, level-up animace)
 - ✅ In-app hlášení chyb (→ GitHub Issues)
+- ✅ Rate-limiting na `/api/recognize` (per-user, placené Claude volání)
 
 ## Rozpracované / chybí
 
-- ⏳ **Serverové achievementy** — definice + progress běží zatím jen klientsky (seed, počítáno lokálně). Dotáhnout do DB (`achievements` + `user_achievements`) a API, obdobně jako výzvy. Viz [DATA-MODEL.md](DATA-MODEL.md), [BACKEND.md](BACKEND.md).
 - ⏳ **Odměny za dokončení vozových sérií** — designem zamýšlené, zatím neimplementované.
-- ⏳ **Robustnost** — chybí automatizované testy (vhodné hlavně pro `combat`/`leveling`/`quests`), rate-limiting na `/api/recognize` (placené Claude volání) a anti-spoof validace u GPS návštěv/check-inů.
+- ⏳ **Robustnost** — chybí automatizované testy (vhodné hlavně pro `combat`/`leveling`/`quests`/`achievements`) a anti-spoof validace u GPS návštěv/check-inů.
 
 ## Budoucí verze (kandidáti)
 

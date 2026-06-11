@@ -58,8 +58,5 @@ Session útoku. Server stampuje `started_at`, takže počet zásahů útočníka
 ### `pending_catches`
 Když hráč chytí evidenční číslo, které už vlastní, vylosuje se nový kandidát a zaparkuje sem (per `(user_id, vehicle_type_id, fleet_number)`), dokud hráč nerozhodne, který kus si nechá. Server-autoritativní; řeší `POST /api/me/vehicles/keep`.
 
----
-
-## Co zatím v DB chybí
-
-- **Achievementy** — `achievements` + `user_achievements` (tier, progress, unlocked). Achievementy běží zatím jen klientsky (seed definice, progress z lokálních počtů). Viz [ROADMAP.md](ROADMAP.md) a [BACKEND.md](BACKEND.md).
+### `user_achievements`
+Odemčené achievementy. Stejně jako u výzev žijí **definice v kódu** (`src/lib/achievements.ts`), ne v tabulce — persistuje se jen fakt, že hráč achievement **odemkl**. Řádek `(user_id, achievement_id)` latchuje odemčení natrvalo (neregresuje, když progress později klesne) a jeho vložení (idempotentní přes `ON CONFLICT`) hlídá jednorázovou XP odměnu. Progress se počítá živě ze serverových dat (chycené kusy, navštívené zastávky, série, velikost katalogu).

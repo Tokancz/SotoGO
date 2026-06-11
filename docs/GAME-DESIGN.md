@@ -98,9 +98,9 @@ Hráči soupeří v **žebříčku** podle XP a gym metrik (počet ovládnutých
 
 ## 7. Achievementy
 
-Dlouhodobé cíle, odstupňované bronz / stříbro / zlato, se stavem zamčeno/odemčeno a progressem. Příklady: **Lovec tramvají** (najdi 50 tramvají), **Metro expert** (všechny typy souprav metra), **Šotouš roku** (navštiv 500 zastávek).
+Dlouhodobé cíle, odstupňované bronz / stříbro / zlato, se stavem zamčeno/odemčeno a progressem. Příklady: **Sběratel** (ulov 10 vozidel), **Metro expert** (celé metro), **Neúnavný šotouš** (hraj 30 dní v řadě).
 
-> Achievementy zatím běží **jen na klientovi** (definice v seedu, progress počítaný lokálně z počtu chycených vozidel) — serverová perzistence je otevřený úkol, viz [ROADMAP.md](ROADMAP.md).
+Achievementy jsou **server-autoritativní**: progress se počítá živě z herních dat (chycené kusy, navštívené zastávky, série, dokončení katalogu), odemčení se persistuje natrvalo (`user_achievements`) a každé poprvé udělí **jednorázovou XP odměnu** podle tieru. Definice viz [`achievements.ts`](../backend/src/lib/achievements.ts).
 
 ## 8. XP, levely a série
 
