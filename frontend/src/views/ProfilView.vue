@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { disablePush, enablePush, pushState, pushSupported, type PushState } from '@/lib/push'
 import { useGameStore } from '@/stores/game'
 import { useAuthStore } from '@/stores/auth'
 import TopBar from '@/components/layout/TopBar.vue'
@@ -32,6 +33,35 @@ function logout() {
 }
 
 const reportOpen = ref(false)
+
+// Push notifications: reflect the current subscription state, toggle on demand.
+const notif = ref<PushState>('off')
+const notifBusy = ref(false)
+const notifSupported = pushSupported()
+onMounted(async () => {
+  if (notifSupported) notif.value = await pushState()
+})
+async function toggleNotif(on: boolean) {
+  if (notifBusy.value) return
+  notifBusy.value = true
+  try {
+    notif.value = on ? await enablePush() : await disablePush()
+    if (on && notif.value === 'denied') {
+      toasts.push({
+        title: 'Oznámení jsou blokovaná',
+        description: 'Povol je v nastavení prohlížeče a zkus to znovu.',
+        icon: 'bell',
+      })
+    } else if (on && notif.value === 'unconfigured') {
+      toasts.push({ title: 'Oznámení nejsou k dispozici', description: 'Server je zatím nemá nastavené.', icon: 'bell' })
+    }
+  } catch (err) {
+    console.error('Přepnutí oznámení selhalo:', err)
+    notif.value = await pushState()
+  } finally {
+    notifBusy.value = false
+  }
+}
 
 // Profile picture upload (downscaled client-side; reuses the catch-photo path).
 const uploadingAvatar = ref(false)
@@ -148,11 +178,18 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
           <span class="settings__label">Vibrace</span>
           <SgSwitch :model-value="settings.haptics" @update:model-value="settings.setHaptics" />
         </div>
-        <div class="settings__row settings__row--disabled">
+        <div class="settings__row" :class="{ 'settings__row--disabled': !notifSupported }">
           <SgIcon name="bell" :size="20" />
-          <span class="settings__label">Push notifikace</span>
-          <span class="settings__soon">Brzy</span>
-          <SgSwitch :model-value="false" disabled />
+          <span class="settings__label">
+            Oznámení
+            <small v-if="!notifSupported" class="settings__note">Nepodporováno na tomto zařízení</small>
+            <small v-else-if="notif === 'denied'" class="settings__note">Blokováno v prohlížeči</small>
+          </span>
+          <SgSwitch
+            :model-value="notif === 'subscribed'"
+            :disabled="!notifSupported || notifBusy || notif === 'denied'"
+            @update:model-value="toggleNotif"
+          />
         </div>
         <div class="settings__row settings__row--disabled">
           <SgIcon name="map" :size="20" />
@@ -304,6 +341,7 @@ const appVersion = `${__APP_COMMIT__} · ${__BUILD_DATE__}`
   & + & { border-top: 1px solid var(--border-subtle); }
 }
 .settings__label { flex: 1; font-weight: var(--fw-medium); font-size: 15px; color: var(--text-primary); text-align: left; }
+.settings__note { display: block; font-weight: var(--fw-regular); font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .settings__chevron { color: var(--text-muted); }
 // Not-yet-implemented settings: dimmed, non-interactive, tagged "Brzy".
 .settings__row--disabled {
