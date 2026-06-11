@@ -9,6 +9,7 @@ import { music } from '@/lib/music'
 import SgBottomNav, { type NavItem } from '@/components/game/SgBottomNav.vue'
 import SgToastHost from '@/components/ui/SgToastHost.vue'
 import LevelUpOverlay from '@/components/game/LevelUpOverlay.vue'
+import OnboardingOverlay from '@/components/layout/OnboardingOverlay.vue'
 
 // Loaded on demand when the camera opens — keeps Tesseract.js (OCR) and the
 // capture UI out of the initial bundle.
@@ -21,6 +22,19 @@ const toasts = useToastStore()
 const settings = useSettingsStore()
 
 const captureOpen = ref(false)
+
+// First-launch tutorial (intro carousel + camera-FAB coachmark). Shown once per
+// device; the flag is local so it doesn't need a backend round-trip.
+const ONBOARDED_KEY = 'sotogo:onboarded'
+const showOnboarding = ref(false)
+function finishOnboarding() {
+  showOnboarding.value = false
+  try {
+    localStorage.setItem(ONBOARDED_KEY, '1')
+  } catch {
+    /* private mode — they'll just see it again next launch */
+  }
+}
 
 // Level-up celebration: watch the (XP-derived) player level and fire the overlay
 // + jingle when it climbs. The first observed value just seeds the baseline so
@@ -123,6 +137,12 @@ function onCaught() {
 }
 
 onMounted(async () => {
+  // New players get the tutorial on first launch (unless they're deep-linking
+  // straight into the camera from the homescreen shortcut).
+  if (!localStorage.getItem(ONBOARDED_KEY) && route.query.action !== 'camera') {
+    showOnboarding.value = true
+  }
+
   // Homescreen shortcut "Vyfotit vozidlo" deep-links with ?action=camera —
   // open the capture sheet, then strip the param so a refresh won't reopen it.
   if (route.query.action === 'camera') {
@@ -173,6 +193,8 @@ onBeforeUnmount(() => {
     <CaptureSheet v-if="captureOpen" @close="captureOpen = false" @caught="onCaught" />
 
     <LevelUpOverlay v-if="levelUpTo !== null" :level="levelUpTo" @close="levelUpTo = null" />
+
+    <OnboardingOverlay v-if="showOnboarding" @done="finishOnboarding" />
 
     <SgToastHost />
   </div>
