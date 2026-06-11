@@ -177,6 +177,7 @@ export interface GymState {
   defender: {
     model: string;
     shortName: string;
+    category: CategoryKey;
     rarity: Rarity;
     /** The holder's catch photo of the defending vehicle (absolute URL), or null. */
     imageUrl: string | null;
@@ -185,6 +186,9 @@ export interface GymState {
     attack: number;
   } | null;
   heldSince: string | null;
+  /** Milliseconds until the defender decays to 0 HP and the gym opens, or null if
+   *  the gym is currently open. */
+  expiresInMs: number | null;
   /** Whether the caller is the current holder. */
   isMine: boolean;
 }

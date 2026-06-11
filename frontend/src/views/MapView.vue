@@ -559,6 +559,22 @@ async function loadGymState(stopId: string) {
   }
 }
 
+/** Rough remaining hold time before the defender decays out, e.g. "~3 dny" / "~5 h". */
+function fmtHold(ms: number | null): string {
+  if (ms == null || ms <= 0) return 'vyprší brzy'
+  const h = ms / 3_600_000
+  if (h >= 48) return `~${Math.round(h / 24)} dny`
+  if (h >= 24) return '~1 den'
+  if (h >= 1) return `~${Math.round(h)} h`
+  return `~${Math.max(1, Math.round(ms / 60_000))} min`
+}
+
+/** The defending vehicle's category metadata (for the hero tile icon/color). */
+const defenderCat = computed(() => {
+  const c = gymState.value?.defender?.category
+  return c ? game.cats[c] : null
+})
+
 // Load (or clear) gym state whenever the selected stop changes.
 watch(selected, (s) => {
   picker.value = null
@@ -755,26 +771,43 @@ function onBattleClose() {
         <template v-else>
           <!-- Held: show the defender -->
           <div v-if="gymState.defender" class="gymsheet__defender">
-            <div class="gymsheet__who">
-              <SgAvatar
-                :src="gymState.holder?.avatarUrl ?? undefined"
-                :name="gymState.holder?.username ?? ''"
-                :size="34"
-              />
-              <div class="gymsheet__whotext">
-                <span class="gymsheet__holder">{{ gymState.isMine ? 'Bráníš ty' : gymState.holder?.username }}</span>
-                <span class="gymsheet__veh">{{ gymState.defender.shortName }}</span>
+            <div class="gymsheet__hero">
+              <div
+                class="gymsheet__vehpic"
+                :class="{ 'gymsheet__vehpic--photo': gymState.defender.imageUrl }"
+                :style="gymState.defender.imageUrl ? undefined : { background: `color-mix(in srgb, ${defenderCat?.color ?? 'var(--xp)'} 14%, white)`, color: defenderCat?.color ?? 'var(--xp)', boxShadow: `inset 0 0 0 2px ${defenderCat?.color ?? 'var(--xp)'}` }"
+              >
+                <img v-if="gymState.defender.imageUrl" :src="gymState.defender.imageUrl" :alt="gymState.defender.shortName" decoding="async" />
+                <SgIcon v-else :name="defenderCat?.icon ?? 'shield'" :size="32" />
+                <span class="gymsheet__rarity" :style="{ color: `var(--rarity-${gymState.defender.rarity})` }">
+                  {{ '★'.repeat({ common: 1, rare: 2, epic: 3, legendary: 4 }[gymState.defender.rarity]) }}
+                </span>
               </div>
-              <span class="gymsheet__atk"><SgIcon name="zap" :size="12" />{{ gymState.defender.attack }}</span>
+              <div class="gymsheet__heroinfo">
+                <span class="gymsheet__veh">{{ gymState.defender.shortName }}</span>
+                <span class="gymsheet__who">
+                  <SgAvatar
+                    :src="gymState.holder?.avatarUrl ?? undefined"
+                    :name="gymState.holder?.username ?? ''"
+                    :size="20"
+                  />
+                  <span class="gymsheet__holder">{{ gymState.isMine ? 'Bráníš ty' : gymState.holder?.username }}</span>
+                </span>
+                <span class="gymsheet__atk"><SgIcon name="zap" :size="13" />Útok {{ gymState.defender.attack }}</span>
+              </div>
             </div>
-            <SgProgressBar
-              :value="gymState.defender.hp"
-              :max="gymState.defender.maxHp"
-              :color="`var(--rarity-${gymState.defender.rarity})`"
-              :height="10"
-              show-value
-              :value-text="`${gymState.defender.hp} / ${gymState.defender.maxHp} HP`"
-            />
+            <div class="gymsheet__bar">
+              <div class="gymsheet__barhead">
+                <span class="gymsheet__barlabel"><SgIcon name="shield" :size="13" />Výdrž obránce</span>
+                <span class="gymsheet__expiry"><SgIcon name="timer" :size="12" />{{ fmtHold(gymState.expiresInMs) }}</span>
+              </div>
+              <SgProgressBar
+                :value="gymState.defender.hp"
+                :max="gymState.defender.maxHp"
+                :color="`var(--rarity-${gymState.defender.rarity})`"
+                :height="10"
+              />
+            </div>
           </div>
           <p v-else class="gymsheet__open"><SgIcon name="shield" :size="15" />Tento gym je volný — obsaď ho!</p>
 
@@ -1122,17 +1155,46 @@ function onBattleClose() {
 .gymsheet__dist { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); flex: none; }
 .gymsheet__status { font-size: 13px; color: var(--text-muted); padding: 4px 0; }
 
-.gymsheet__defender { display: flex; flex-direction: column; gap: 9px; }
-.gymsheet__who { display: flex; align-items: center; gap: 10px; }
-.gymsheet__whotext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.gymsheet__holder {
-  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 14px;
-  color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.gymsheet__defender { display: flex; flex-direction: column; gap: 11px; }
+.gymsheet__hero { display: flex; align-items: center; gap: 12px; }
+.gymsheet__vehpic {
+  position: relative; flex: none; width: 64px; height: 64px;
+  border-radius: var(--radius-lg);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  img { width: 100%; height: 100%; object-fit: cover; }
 }
-.gymsheet__veh { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.gymsheet__vehpic--photo { background: var(--surface-sunken); }
+.gymsheet__rarity {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  text-align: center; font-size: 10px; letter-spacing: 1px; line-height: 1.6;
+  background: linear-gradient(transparent, rgba(11, 15, 20, 0.55));
+  text-shadow: 0 1px 2px rgba(11, 15, 20, 0.6);
+}
+.gymsheet__heroinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.gymsheet__veh {
+  font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 18px;
+  color: var(--text-primary); letter-spacing: -0.01em;
+}
+.gymsheet__who { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.gymsheet__holder {
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 13px;
+  color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .gymsheet__atk {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 12px; color: var(--text-muted);
+}
+.gymsheet__bar { display: flex; flex-direction: column; gap: 6px; }
+.gymsheet__barhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gymsheet__barlabel {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-display); font-weight: var(--fw-semibold); font-size: 12px;
+  color: var(--text-secondary);
+  svg { color: var(--text-muted); }
+}
+.gymsheet__expiry {
   display: inline-flex; align-items: center; gap: 4px; flex: none;
-  font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 13px; color: var(--text-secondary);
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
 }
 .gymsheet__open {
   display: flex; align-items: center; gap: 7px;
