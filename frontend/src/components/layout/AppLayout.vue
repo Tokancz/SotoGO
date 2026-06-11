@@ -135,9 +135,9 @@ onMounted(async () => {
   game.ensureCatalog()
   game.loadQuests()
   game.checkIn()
-  // Seed the achievement baseline only after progress (and catalog, which some
-  // achievements count against) are in — so we don't announce pre-existing ones.
-  await Promise.all([game.loadProgress(), game.ensureCatalog()])
+  // Seed the achievement baseline only after the achievements (and progress) are
+  // in — so existing unlocks don't announce on open, only ones earned live after.
+  await Promise.all([game.loadProgress(), game.ensureCatalog(), game.loadAchievements()])
   seenUnlocked.value = new Set(game.achievements.filter((a) => a.unlocked).map((a) => a.title))
 
   // Resume music on the first user gesture if it was left enabled.

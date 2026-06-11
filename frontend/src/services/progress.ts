@@ -2,11 +2,26 @@
 // awarded server-side, so responses carry the updated user.
 import api, { mediaUrl } from './api'
 import type { User } from '@/types/auth'
-import type { CatchOutcome, CategoryKey, CollectedVehicle } from '@/types/game'
+import type { Achievement, CatchOutcome, CategoryKey, CollectedVehicle } from '@/types/game'
 
 interface MutationResult {
   user: User
   awardedXp: number
+}
+
+/** An achievement as the server reports it (GET /me/achievements). */
+export interface ApiAchievement {
+  id: string
+  title: string
+  desc: string
+  icon: string
+  tier: Achievement['tier']
+  color: string
+  value: number
+  max: number
+  unlocked: boolean
+  /** XP granted the first time it unlocks. */
+  reward: number
 }
 
 /** A quest as the server reports it (note: `category`, mapped to `cat` in the store). */
@@ -85,4 +100,17 @@ export const progressApi = {
 
   claimQuest: (questId: string) =>
     api.post<MutationResult>(`/me/quests/${questId}/claim`).then((r) => r.data),
+
+  // Achievements with live progress. The GET has a side effect: it latches any
+  // newly-met unlock server-side and awards its one-time XP, so the response
+  // carries the freshly-unlocked ids and the updated user.
+  achievements: () =>
+    api
+      .get<{
+        achievements: ApiAchievement[]
+        newlyUnlocked: string[]
+        awardedXp: number
+        user: User
+      }>('/me/achievements')
+      .then((r) => r.data),
 }
