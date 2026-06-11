@@ -11,6 +11,7 @@ import { deleteImage, isAllowedImage, saveImage } from '../lib/uploads.js'
 import { levelFromTotalXp } from '../lib/leveling.js'
 import { currentPeriod, questById, questsFor, type QuestTemplate } from '../lib/quests.js'
 import { evaluate as evaluateAchievements, type Metrics } from '../lib/achievements.js'
+import { sendToUser } from '../lib/push.js'
 import {
   BATTLE_DURATION_MS,
   BATTLE_GRACE_MS,
@@ -532,6 +533,27 @@ async function finalizeHolding(holderId: string, heldSinceIso: string): Promise<
   }
 }
 
+/** Push the dethroned holder a "your gym was taken" notification. Best-effort:
+ *  looks up the gym name + attacker handle for the message, then fans out. */
+async function notifyGymTaken(oustedUserId: string, attackerId: string, stopId: string): Promise<void> {
+  try {
+    const { rows } = await pool.query<{ stop_name: string; attacker: string }>(
+      `select s.name as stop_name, u.username as attacker
+         from stops s, users u where s.id = $1 and u.id = $2`,
+      [stopId, attackerId],
+    )
+    const r = rows[0]
+    await sendToUser(oustedUserId, {
+      title: 'Tvůj gym padl! 🛡️',
+      body: r ? `${r.attacker} obsadil ${r.stop_name}. Získej ho zpět!` : 'Někdo obsadil tvůj gym.',
+      url: '/mapa',
+      tag: `gym-${stopId}`,
+    })
+  } catch (err) {
+    console.error('Gym-taken notification failed:', err)
+  }
+}
+
 /** Release a gym's defending instance back to the holder, healed to full. Targets
  *  the exact instance via `vehicle_id`; falls back to the model for legacy rows. */
 async function freeDefender(g: GymRow): Promise<void> {
@@ -802,9 +824,13 @@ meRouter.post(
 
     // Win: bank the old holder's time, return their (healed) vehicle, and take the
     // gym with the attacking instance at full HP.
+    const ousted = g.holder_user_id
     await finalizeHolding(g.holder_user_id, g.held_since)
     await freeDefender(g)
     await pool.query('delete from gym_state where stop_id = $1', [b.stop_id])
+
+    // Notify the dethroned holder their gym was taken (best-effort, non-blocking).
+    void notifyGymTaken(ousted, userId, b.stop_id)
 
     // Deploy the attacker's instance (claim it; if it's busy, the gym just stays open).
     let newDefenderHp: number | null = null

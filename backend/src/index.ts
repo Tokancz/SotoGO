@@ -8,6 +8,7 @@ import { catalogRouter } from './routes/catalog.js'
 import { meRouter } from './routes/me.js'
 import { reportRouter } from './routes/report.js'
 import { recognizeRouter } from './routes/recognize.js'
+import { pushRouter } from './routes/push.js'
 
 const app = express()
 
@@ -26,6 +27,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/me', meRouter)
 app.use('/api/report', reportRouter)
 app.use('/api/recognize', recognizeRouter)
+app.use('/api/push', pushRouter)
 app.use('/api', catalogRouter)
 
 // Final error handler — keeps unexpected failures from leaking internals.

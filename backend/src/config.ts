@@ -62,4 +62,13 @@ export const config = {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
+  // Web Push (VAPID). When the keypair is set, /api/push works and the server can
+  // send notifications (e.g. when a gym is taken). Generate a pair once with
+  // `npx web-push generate-vapid-keys`. The public key is safe to ship to clients;
+  // the private key must stay secret. `subject` is a mailto:/https: contact URL.
+  vapid: {
+    publicKey: process.env.VAPID_PUBLIC_KEY ?? '',
+    privateKey: process.env.VAPID_PRIVATE_KEY ?? '',
+    subject: process.env.VAPID_SUBJECT ?? 'mailto:admin@sotogo.app',
+  },
 }
