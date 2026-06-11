@@ -16,6 +16,8 @@ import {
   BATTLE_GRACE_MS,
   BATTLE_WIN_XP,
   MAX_TAPS_PER_SEC,
+  decayHp,
+  decayTimeLeftMs,
   regenHp,
   rollRarity,
   rollStats,
@@ -111,7 +113,7 @@ async function collectedInstances(userId: string): Promise<CollectedInstance[]> 
   return rows.map((r) => {
     const hp = r.deployed_stop_id
       ? r.defender_hp != null && r.last_regen_at
-        ? regenHp(r.defender_hp, r.max_hp, new Date(r.last_regen_at).getTime(), now)
+        ? decayHp(r.defender_hp, r.max_hp, new Date(r.last_regen_at).getTime(), now)
         : r.hp
       : regenHp(r.hp, r.max_hp, new Date(r.hp_updated_at).getTime(), now)
     return {
@@ -498,9 +500,21 @@ async function gymRow(stopId: string): Promise<GymRow | null> {
   return rows[0] ?? null
 }
 
-/** Defender HP after regen, persisting the healed value so it can't be re-healed twice. */
-async function applyRegen(g: GymRow): Promise<number> {
-  const hp = regenHp(g.defender_hp, g.defender_max_hp, new Date(g.last_regen_at).getTime(), Date.now())
+/**
+ * Resolve a defender's live HP after time-decay (see combat.decayHp). Persists the
+ * decayed value (resetting the clock — exact since the rate is HP-independent). If
+ * the defender has decayed to 0 it's auto-evicted: the holding time is banked, the
+ * vehicle returned home healed, the gym opened — and null is returned to signal
+ * "no defender". `last_regen_at` is reused as the decay anchor (column kept).
+ */
+async function applyDecay(g: GymRow): Promise<number | null> {
+  const hp = decayHp(g.defender_hp, g.defender_max_hp, new Date(g.last_regen_at).getTime(), Date.now())
+  if (hp <= 0) {
+    await finalizeHolding(g.holder_user_id, g.held_since)
+    await freeDefender(g)
+    await pool.query('delete from gym_state where stop_id = $1', [g.stop_id])
+    return null
+  }
   if (hp !== g.defender_hp) {
     await pool.query('update gym_state set defender_hp = $1, last_regen_at = now() where stop_id = $2', [
       hp,
@@ -538,6 +552,7 @@ async function defenderPayload(g: GymRow, hp: number) {
   const { rows } = await pool.query<{
     model: string
     short_name: string
+    category: string
     rarity: string
     image_url: string | null
     username: string
@@ -546,7 +561,7 @@ async function defenderPayload(g: GymRow, hp: number) {
   }>(
     // The exact deployed instance gives the rolled rarity + catch photo; fall back
     // to the model's base rarity for legacy rows with no vehicle_id.
-    `select vt.model, vt.short_name, coalesce(uv.rarity, vt.rarity) as rarity, uv.image_url,
+    `select vt.model, vt.short_name, vt.category, coalesce(uv.rarity, vt.rarity) as rarity, uv.image_url,
             u.username, u.avatar_url, u.id as holder_id
        from vehicle_types vt
        join users u on u.id = $2
@@ -561,6 +576,7 @@ async function defenderPayload(g: GymRow, hp: number) {
       ? {
           model: r.model,
           shortName: r.short_name,
+          category: r.category,
           rarity: r.rarity,
           imageUrl: r.image_url,
           hp,
@@ -569,6 +585,8 @@ async function defenderPayload(g: GymRow, hp: number) {
         }
       : null,
     heldSince: g.held_since,
+    // Remaining hold time before the defender decays to 0 (and the gym opens).
+    expiresInMs: decayTimeLeftMs(hp, g.defender_max_hp),
   }
 }
 
@@ -577,9 +595,11 @@ meRouter.get(
   '/gyms/:stopId',
   asyncHandler(async (req: AuthedRequest, res) => {
     const userId = req.userId!
+    const open = { holder: null, defender: null, heldSince: null, expiresInMs: null, isMine: false }
     const g = await gymRow(req.params.stopId)
-    if (!g) return res.json({ holder: null, defender: null, heldSince: null, isMine: false })
-    const hp = await applyRegen(g)
+    if (!g) return res.json(open)
+    const hp = await applyDecay(g)
+    if (hp === null) return res.json(open) // decayed out — gym just opened
     res.json({ ...(await defenderPayload(g, hp)), isMine: g.holder_user_id === userId })
   }),
 )
@@ -669,7 +689,7 @@ meRouter.post(
     await finalizeHolding(userId, g.held_since)
     await freeDefender(g)
     await pool.query('delete from gym_state where stop_id = $1', [stopId])
-    res.json({ holder: null, defender: null, heldSince: null, isMine: false })
+    res.json({ holder: null, defender: null, heldSince: null, expiresInMs: null, isMine: false })
   }),
 )
 
@@ -693,7 +713,8 @@ meRouter.post(
       return res.status(404).json({ error: 'Vozidlo nenalezeno.' })
     }
 
-    const hp = await applyRegen(g)
+    const hp = await applyDecay(g)
+    if (hp === null) return res.status(409).json({ error: 'Tento gym nikdo nebrání — můžeš ho obsadit.' })
     const { rows } = await pool.query<{ id: string }>(
       `insert into gym_battles (stop_id, attacker_user_id, vehicle_type_id, vehicle_id, attacker_attack, defender_hp_at_start)
        values ($1, $2, $3, $4, $5, $6) returning id`,
@@ -754,7 +775,14 @@ meRouter.post(
       return res.json({ won: false, awardedXp: 0, defenderHp: g ? g.defender_hp : null, user: publicUser(user), voided: true })
     }
 
-    const currentHp = await applyRegen(g)
+    const currentHp = await applyDecay(g)
+    // Decayed out mid-battle — the gym just opened; void this attack (the player can
+    // now claim it for free).
+    if (currentHp === null) {
+      await markResolved(false)
+      const user = (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+      return res.json({ won: false, awardedXp: 0, defenderHp: null, user: publicUser(user), voided: true })
+    }
 
     if (damage < currentHp) {
       // Defender survives — drain its motivation (HP), persist. The attacking
