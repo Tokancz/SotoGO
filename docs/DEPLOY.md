@@ -68,6 +68,8 @@ runs `flyctl deploy --remote-only` on every push to `main` that touches
    | `GITHUB_REPO` | `Tokancz/SotoGO` |
    | `CLIENT_ORIGIN` | `https://tokancz.github.io` |
    | `ADMIN_EMAILS` | optional, comma-separated admin emails |
+   | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | optional, for Web Push (`npx web-push generate-vapid-keys`) |
+   | `VAPID_SUBJECT` | optional, `mailto:` contact (defaults to a placeholder) |
    *(Don't set `PORT` — `fly.toml` uses `internal_port = 3000`, which the app reads.)*
 5. **Push to main** (or `fly deploy` once manually). You get
    `https://sotogo-api.fly.dev`.

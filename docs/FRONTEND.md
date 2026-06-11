@@ -14,7 +14,9 @@ Mobile-first Vue 3 single-page aplikace, postavená z designové reference a nas
 | HTTP | Axios (JWT bearer) |
 | Mapa | Leaflet |
 | Ikony | `lucide-vue-next` (přes `SgIcon.vue`) |
-| PWA | `site.webmanifest` + ikony; herní zvuky (SFX), haptika, ambientní hudba |
+| PWA | `site.webmanifest` + ikony; service worker (`public/sw.js`) pro Web Push; herní zvuky (SFX), haptika, ambientní hudba |
+| Onboarding | Úvodní carousel + coachmark na kameru pro nové hráče (`OnboardingOverlay.vue`, jednou na zařízení) |
+| Notifikace | Web Push přes `lib/push.ts` + `services/push.ts`; toggle „Oznámení" v profilu |
 
 ## Design systém
 

@@ -89,7 +89,8 @@ Vybrané významné stanice (metro + velké přestupy, příznak `is_gym`) jsou 
 
 - Hráč na gym **nasadí** jeden ze svých kusů jako obránce (jeho HP/Attack vychází z vzácnosti, viz [`combat.ts`](../backend/src/lib/combat.ts)).
 - Útočník vede **časovaný tap battle**; server stampuje začátek, takže počet zásahů je odvozen autoritativně, ne věřen klientovi.
-- Porazí-li útočník obránce, gym přebírá; poražený obránce se vyčerpá na 0 HP a **regeneruje v čase**.
+- **Výdrž obránce klesá v čase** (jako motivace v Pokémon GO): z plné výdrže k 0 za ~4 dny (`GYM_DECAY_DAYS`), pak je obránce automaticky vyhozen a gym se otevře. Útoky výdrž ubírají navíc, takže o sporný gym se přijde rychleji. Poražené/vyhozené vozidlo se vrací domů uzdravené.
+- Porazí-li útočník obránce, gym přebírá; **poraženému majiteli přijde push notifikace**, že o gym přišel.
 - Držení gymu se počítá do statistik (`battles_won`, `gym_seconds`) a žebříčku.
 
 ## 6. Žebříček

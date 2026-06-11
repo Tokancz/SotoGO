@@ -60,3 +60,8 @@ Když hráč chytí evidenční číslo, které už vlastní, vylosuje se nový 
 
 ### `user_achievements`
 Odemčené achievementy. Stejně jako u výzev žijí **definice v kódu** (`src/lib/achievements.ts`), ne v tabulce — persistuje se jen fakt, že hráč achievement **odemkl**. Řádek `(user_id, achievement_id)` latchuje odemčení natrvalo (neregresuje, když progress později klesne) a jeho vložení (idempotentní přes `ON CONFLICT`) hlídá jednorázovou XP odměnu. Progress se počítá živě ze serverových dat (chycené kusy, navštívené zastávky, série, velikost katalogu).
+
+### `push_subscriptions`
+Web Push odběry — jeden řádek na zařízení/prohlížeč (`endpoint` unikátní, `p256dh` + `auth` jsou šifrovací klíče z `PushSubscription`). Hráč jich může mít víc. Mrtvé endpointy (404/410 při odeslání) se prořezávají v `src/lib/push.ts`. Bez nakonfigurovaného VAPID je celá vrstva no-op.
+
+> **Gym výdrž (decay):** gymy nemají vlastní tabulku navíc — obránce v `gym_state` slábne v čase. `defender_hp` klesá z `defender_max_hp` k 0 za `GYM_DECAY_DAYS` (4) měřeno od `last_regen_at` (sloupec teď slouží jako kotva decaye); při 0 je gym automaticky uvolněn. Viz `src/lib/combat.ts`.

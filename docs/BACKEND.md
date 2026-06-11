@@ -17,9 +17,10 @@ Express REST API nad PostgreSQL. Implementovaný a nasazený na Fly.io (`sotogo-
 ## Zodpovědnosti
 
 - **Autentizace** — registrace/přihlášení e-mailem+heslem, Google sign-in, vydávání a ověřování JWT.
-- **Herní logika (autoritativně na serveru)** — rozpoznání vozidla z fotky, evidence objevů per fyzický kus (evidenční číslo), losování vzácnosti a bojových statistik, udělování XP a výpočet levelu ([`src/lib/leveling.ts`](../backend/src/lib/leveling.ts)), deterministické denní výzvy ([`src/lib/quests.ts`](../backend/src/lib/quests.ts)), achievementy ([`src/lib/achievements.ts`](../backend/src/lib/achievements.ts)), gym battles ([`src/lib/combat.ts`](../backend/src/lib/combat.ts)), denní check-in a série, žebříček.
+- **Herní logika (autoritativně na serveru)** — rozpoznání vozidla z fotky, evidence objevů per fyzický kus (evidenční číslo), losování vzácnosti a bojových statistik, udělování XP a výpočet levelu ([`src/lib/leveling.ts`](../backend/src/lib/leveling.ts)), deterministické denní výzvy ([`src/lib/quests.ts`](../backend/src/lib/quests.ts)), achievementy ([`src/lib/achievements.ts`](../backend/src/lib/achievements.ts)), gym battles + decay obránců ([`src/lib/combat.ts`](../backend/src/lib/combat.ts)), denní check-in a série, žebříček.
 - **Perzistence** — všechny entity v PostgreSQL (viz [DATA-MODEL.md](DATA-MODEL.md)).
 - **Ukládání fotek** — fotky hráče do S3 (durable) nebo lokálního disku (`/uploads`, ephemerální) — viz [`src/lib/uploads.ts`](../backend/src/lib/uploads.ts).
+- **Web Push** — odesílání notifikací přes VAPID ([`src/lib/push.ts`](../backend/src/lib/push.ts)); zatím event-driven trigger „gym obsazen".
 
 ## REST API (skutečný stav)
 
@@ -45,6 +46,9 @@ Vše kromě `/api/health`, `/api/auth/*`, `/api/recognize`, `/api/report` a kata
 |---|---|---|
 | POST | `/api/recognize` | Upload fotky → Claude vision vrátí evidenční číslo + kandidátní modely z katalogu (per-user rate limit, `RECOGNIZE_RATE_PER_MIN`) |
 | POST | `/api/report` | In-app hlášení chyby → založí GitHub Issue |
+| GET | `/api/push/key` | VAPID veřejný klíč (nebo `null`, když push není nastavený) |
+| POST | `/api/push/subscribe` | Registrace Web Push odběru pro hráče (JWT) |
+| POST | `/api/push/unsubscribe` | Zrušení odběru dle endpointu (JWT) |
 
 ### Hráč — `/api/me` (vše JWT)
 | Metoda | Cesta | Účel |
@@ -114,5 +118,6 @@ Povinné: `DATABASE_URL`, `JWT_SECRET`. Ostatní jsou volitelné (funkce se eleg
 | `UPLOAD_DIR`, `MAX_UPLOAD_BYTES` | Lokální adresář a limit velikosti uploadu |
 | `QUEST_PERIOD_HOURS` | Perioda obnovy denních výzev (default 24 h, zarovnáno na UTC) |
 | `ADMIN_EMAILS` | Čárkou oddělené e-maily s admin právy (dev nástroje, např. teleport na mapě) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push (VAPID). Prázdné → push vypnutý a klient skryje toggle. Pár vygeneruj přes `npx web-push generate-vapid-keys`; privátní klíč drž v tajnosti |
 
 Nasazení viz [DEPLOY.md](DEPLOY.md).
