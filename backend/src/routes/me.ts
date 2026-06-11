@@ -10,6 +10,7 @@ import { publicUser, type UserRow } from '../lib/user.js'
 import { deleteImage, isAllowedImage, saveImage } from '../lib/uploads.js'
 import { levelFromTotalXp } from '../lib/leveling.js'
 import { currentPeriod, questById, questsFor, type QuestTemplate } from '../lib/quests.js'
+import { evaluate as evaluateAchievements, type Metrics } from '../lib/achievements.js'
 import {
   BATTLE_DURATION_MS,
   BATTLE_GRACE_MS,
@@ -168,9 +169,9 @@ meRouter.get(
 )
 
 // DELETE /api/me/progress — wipe the player's progress: collected vehicles (and
-// their photos), visited stops, quest claims/completions, and reset XP/level/
-// streak to zero. The account itself stays. For testing and a "start over"
-// option; irreversible, so the client gates it behind a confirmation.
+// their photos), visited stops, quest claims/completions, achievement unlocks,
+// and reset XP/level/streak to zero. The account itself stays. For testing and a
+// "start over" option; irreversible, so the client gates it behind a confirmation.
 meRouter.delete(
   '/progress',
   asyncHandler(async (req: AuthedRequest, res) => {
@@ -184,6 +185,7 @@ meRouter.delete(
       pool.query('delete from user_stops where user_id = $1', [userId]),
       pool.query('delete from user_quest_claims where user_id = $1', [userId]),
       pool.query('delete from user_quest_completions where user_id = $1', [userId]),
+      pool.query('delete from user_achievements where user_id = $1', [userId]),
       pool.query('delete from pending_catches where user_id = $1', [userId]),
       // Abandon any gyms this player holds and drop their battle history.
       pool.query('delete from gym_state where holder_user_id = $1', [userId]),
@@ -1046,5 +1048,77 @@ meRouter.post(
     }
 
     res.json({ user: publicUser(user) })
+  }),
+)
+
+/** Build the achievement metrics for a player from authoritative DB counts. */
+async function playerMetrics(userId: string): Promise<Metrics> {
+  const [caught, models, visited, byCat, catalogByCat, catalogTotal, streak] = await Promise.all([
+    pool.query<{ n: number }>('select count(*)::int n from user_vehicles where user_id = $1', [userId]),
+    pool.query<{ n: number }>('select count(distinct vehicle_type_id)::int n from user_vehicles where user_id = $1', [userId]),
+    pool.query<{ n: number }>('select count(*)::int n from user_stops where user_id = $1', [userId]),
+    pool.query<{ category: string; n: number }>(
+      `select vt.category, count(distinct uv.vehicle_type_id)::int n
+         from user_vehicles uv join vehicle_types vt on vt.id = uv.vehicle_type_id
+        where uv.user_id = $1 group by vt.category`,
+      [userId],
+    ),
+    pool.query<{ category: string; n: number }>('select category, count(*)::int n from vehicle_types group by category'),
+    pool.query<{ n: number }>('select count(*)::int n from vehicle_types'),
+    pool.query<{ streak_count: number }>('select streak_count from users where id = $1', [userId]),
+  ])
+  const modelsByCategory: Record<string, number> = {}
+  for (const r of byCat.rows) modelsByCategory[r.category] = r.n
+  const catalogByCategory: Record<string, number> = {}
+  for (const r of catalogByCat.rows) catalogByCategory[r.category] = r.n
+  return {
+    caught: caught.rows[0]?.n ?? 0,
+    models: models.rows[0]?.n ?? 0,
+    visited: visited.rows[0]?.n ?? 0,
+    streak: streak.rows[0]?.streak_count ?? 0,
+    modelsByCategory,
+    catalogByCategory,
+    catalogTotal: catalogTotal.rows[0]?.n ?? 0,
+  }
+}
+
+// GET /api/me/achievements — every achievement with this player's live progress.
+// Side effect (like GET /quests latching completions): the first time progress
+// reaches a target we persist the unlock and award its one-time XP. The insert's
+// ON CONFLICT guard makes the payout idempotent, so polling can't double-pay.
+// Returns the freshly-unlocked ids + updated user so the client can toast + sync XP.
+meRouter.get(
+  '/achievements',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const userId = req.userId!
+    const metrics = await playerMetrics(userId)
+    const already = await pool.query<{ achievement_id: string }>(
+      'select achievement_id from user_achievements where user_id = $1',
+      [userId],
+    )
+    const unlockedIds = new Set(already.rows.map((r) => r.achievement_id))
+    const achievements = evaluateAchievements(metrics, unlockedIds)
+
+    // Persist + reward any achievement newly at/over target this request.
+    const newlyUnlocked: string[] = []
+    let rewardXp = 0
+    for (const a of achievements) {
+      if (!a.unlocked || unlockedIds.has(a.id)) continue
+      const ins = await pool.query(
+        `insert into user_achievements (user_id, achievement_id) values ($1, $2)
+         on conflict do nothing returning achievement_id`,
+        [userId, a.id],
+      )
+      if (ins.rowCount) {
+        newlyUnlocked.push(a.id)
+        rewardXp += a.reward
+      }
+    }
+
+    const user = rewardXp > 0
+      ? await awardXp(userId, rewardXp)
+      : (await pool.query<UserRow>('select * from users where id = $1', [userId])).rows[0]
+
+    res.json({ achievements, newlyUnlocked, awardedXp: rewardXp, user: publicUser(user) })
   }),
 )

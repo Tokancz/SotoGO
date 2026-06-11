@@ -265,3 +265,16 @@ CREATE TABLE IF NOT EXISTS pending_catches (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, vehicle_type_id, fleet_number)
 );
+
+-- ── Achievements ─────────────────────────────────────────────────────────────
+-- Achievement DEFINITIONS live in code (src/lib/achievements.ts), like quests —
+-- not in a table. We persist only the fact that a player UNLOCKED one: the row
+-- latches the unlock permanently (so it can't regress if progress later drops)
+-- and its existence is what gates the one-time XP reward (inserted exactly once).
+-- `achievement_id` is the stable code-side id.
+CREATE TABLE IF NOT EXISTS user_achievements (
+  user_id        BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  achievement_id TEXT NOT NULL,
+  unlocked_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, achievement_id)
+);
